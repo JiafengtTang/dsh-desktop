@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connections — DeepSeek Harness</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121823;
+      --panel2: #0f141d;
+      --border: rgba(255,255,255,0.08);
+      --text: #e8eefb;
+      --muted: #8b98b3;
+      --accent: #4f8cff;
+      --danger: #ff6b6b;
+      --ok: #34c98e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 24px 48px; }
+    h1 { font-size: 18px; margin: 0 0 2px; }
+    .sub { color: var(--muted); margin: 0 0 20px; font-size: 12px; }
+    .status-line { font-size: 12px; color: var(--muted); margin: 8px 0 20px; }
+    .status-line b { color: var(--text); }
+    .pill {
+      display: inline-block; padding: 1px 8px; border-radius: 999px;
+      background: rgba(79,140,255,0.15); color: var(--accent); font-size: 11px; font-weight: 600;
+    }
+    .pill.active { background: rgba(52,201,142,0.15); color: var(--ok); }
+    .section { margin-bottom: 22px; }
+    .section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 0 0 10px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 14px; margin-bottom: 8px;
+    }
+    .row { display: flex; align-items: center; gap: 12px; }
+    .row .grow { flex: 1; min-width: 0; }
+    .row .name { font-weight: 600; }
+    .row .target { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button {
+      font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--panel2); color: var(--text);
+    }
+    button:hover { border-color: rgba(255,255,255,0.25); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { color: var(--danger); }
+    button:disabled { opacity: 0.5; cursor: default; }
+    form .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+    form .full { grid-column: 1 / -1; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, textarea {
+      width: 100%; font: inherit; font-size: 13px; color: var(--text);
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 7px 9px; outline: none;
+    }
+    input:focus, textarea:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 42px; }
+    .hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+    .form-actions { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+    .test-output {
+      margin-top: 12px; padding: 10px; border-radius: 8px; background: var(--panel2);
+      border: 1px solid var(--border); font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+      white-space: pre-wrap; color: var(--muted); display: none;
+    }
+    .test-output.ok { display: block; color: var(--ok); }
+    .test-output.fail { display: block; color: var(--danger); }
+    .empty { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Connections</h1>
+    <p class="sub">Run DeepSeek Harness on this Mac, or on a remote server over SSH.</p>
+    <div class="status-line" id="statusLine">Backend: <b id="mode">…</b></div>
+
+    <div class="section">
+      <h2>Active connection</h2>
+      <div class="card" id="list"></div>
+    </div>
+
+    <div class="section">
+      <h2 id="formTitle">Add remote connection</h2>
+      <div class="card">
+        <form id="form">
+          <div class="grid">
+            <div class="full">
+              <label>Name *</label>
+              <input id="f-name" placeholder="e.g. GPU devbox" autocomplete="off" />
+            </div>
+
+            <div class="full">
+              <label>SSH host alias (recommended)</label>
+              <input id="f-alias" placeholder="devbox" autocomplete="off" />
+              <div class="hint">Uses an entry from <code>~/.ssh/config</code> (user, key, jump hosts all handled there). Leave blank to specify host/user/port directly below.</div>
+            </div>
+
+            <div>
+              <label>Host</label>
+              <input id="f-host" placeholder="192.168.1.20" autocomplete="off" />
+            </div>
+            <div>
+              <label>User</label>
+              <input id="f-user" placeholder="ubuntu" autocomplete="off" />
+            </div>
+            <div>
+              <label>Port</label>
+              <input id="f-port" type="number" value="22" />
+            </div>
+            <div>
+              <label>Identity file (optional)</label>
+              <input id="f-identity" placeholder="~/.ssh/id_ed25519" autocomplete="off" />
+            </div>
+
+            <div class="full">
+              <label>Remote project directory *</label>
+              <input id="f-dir" placeholder="/home/ubuntu/project" autocomplete="off" />
+              <div class="hint">Absolute path on the remote host. File reads/writes and commands all happen in this directory.</div>
+            </div>
+
+            <div>
+              <label>Remote port</label>
+              <input id="f-rport" type="number" value="0" />
+              <div class="hint">Port dsh listens on remotely (keep fixed).</div>
+            </div>
+            <div>
+              <label>Remote shell</label>
+              <input id="f-shell" value="bash" />
+              <div class="hint">Login shell used to start dsh remotely.</div>
+            </div>
+
+            <div class="full">
+              <label>Remote dsh command</label>
+              <input id="f-cmd" value="npx -y @deepseek-ai/dsh@0.1.0-rc.6" />
+              <div class="hint">How to launch dsh on the remote host. Use <code>dsh</code> if it is already installed and on the remote PATH.</div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="primary" id="saveBtn">Add connection</button>
+            <button type="button" id="testBtn">Test connection</button>
+            <button type="button" id="clearBtn" class="danger">Clear</button>
+          </div>
+        </form>
+        <div class="test-output" id="testOutput"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id)
+    let editingName = null
+
+    function field(id) { return $(id).value.trim() }
+    function readForm() {
+      return {
+        name: field('f-name'),
+        sshAlias: field('f-alias'),
+        host: field('f-host'),
+        user: field('f-user'),
+        port: parseInt(field('f-port'), 10) || 22,
+        identityFile: field('f-identity'),
+        projectDir: field('f-dir'),
+        remotePort: parseInt(field('f-rport'), 10) || 0,
+        remoteShell: field('f-shell') || 'bash',
+        dshCommand: field('f-cmd') || 'npx -y @deepseek-ai/dsh@0.1.0-rc.6'
+      }
+    }
+    function fillForm(p) {
+      $('f-name').value = p.name || ''
+      $('f-alias').value = p.sshAlias || ''
+      $('f-host').value = p.host || ''
+      $('f-user').value = p.user || ''
+      $('f-port').value = p.port || 22
+      $('f-identity').value = p.identityFile || ''
+      $('f-dir').value = p.projectDir || ''
+      $('f-rport').value = p.remotePort || 0
+      $('f-shell').value = p.remoteShell || 'bash'
+      $('f-cmd').value = p.dshCommand || 'npx -y @deepseek-ai/dsh@0.1.0-rc.6'
+    }
+    function clearForm() {
+      editingName = null
+      $('form').reset()
+      $('f-port').value = 22
+      $('f-rport').value = 0
+      $('f-shell').value = 'bash'
+      $('f-cmd').value = 'npx -y @deepseek-ai/dsh@0.1.0-rc.6'
+      $('formTitle').textContent = 'Add remote connection'
+      $('saveBtn').textContent = 'Add connection'
+      $('testOutput').className = 'test-output'
+    }
+
+    function targetText(c) {
+      return c.sshAlias || (c.user ? c.user + '@' : '') + (c.host || '')
+    }
+
+    async function renderList() {
+      const data = await window.dshDesktop.connections.list()
+      const box = $('list')
+      box.innerHTML = ''
+
+      const local = document.createElement('div')
+      local.className = 'card row'
+      local.innerHTML = `
+        <div class="grow">
+          <div class="name">This Mac <span class="pill ${data.active === 'local' ? 'active' : ''}">${data.active === 'local' ? 'ACTIVE' : ''}</span></div>
+          <div class="target">Local backend (${data.active === 'local' ? 'running' : 'stopped'})</div>
+        </div>
+        <button class="primary" data-activate="local">Use</button>`
+      box.appendChild(local)
+
+      if (data.connections.length === 0) {
+        const empty = document.createElement('div')
+        empty.className = 'empty'
+        empty.style.padding = '10px 2px 2px'
+        empty.textContent = 'No remote connections yet. Add one below.'
+        box.appendChild(empty)
+      }
+
+      for (const c of data.connections) {
+        const active = data.active === c.name
+        const el = document.createElement('div')
+        el.className = 'card row'
+        el.innerHTML = `
+          <div class="grow">
+            <div class="name">${escapeHtml(c.name)} <span class="pill ${active ? 'active' : ''}">${active ? 'ACTIVE' : ''}</span></div>
+            <div class="target">${escapeHtml(targetText(c))} · ${escapeHtml(c.projectDir)}</div>
+          </div>
+          <button data-activate="${escapeHtml(c.name)}">Use</button>
+          <button data-edit="${escapeHtml(c.name)}">Edit</button>
+          <button class="danger" data-delete="${escapeHtml(c.name)}">Delete</button>`
+        box.appendChild(el)
+      }
+
+      box.querySelectorAll('[data-activate]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const r = await window.dshDesktop.connections.activate(b.getAttribute('data-activate'))
+          if (!r.ok) alert(r.error)
+          else renderList()
+        })
+      })
+      box.querySelectorAll('[data-edit]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const c = data.connections.find((x) => x.name === b.getAttribute('data-edit'))
+          if (c) {
+            editingName = c.name
+            fillForm(c)
+            $('formTitle').textContent = 'Edit connection'
+            $('saveBtn').textContent = 'Save changes'
+          }
+        })
+      })
+      box.querySelectorAll('[data-delete]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const name = b.getAttribute('data-delete')
+          if (confirm('Delete connection "' + name + '"?')) {
+            const r = await window.dshDesktop.connections.remove(name)
+            if (!r.ok) alert(r.error)
+            else renderList()
+          }
+        })
+      })
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const profile = readForm()
+      if (!profile.name) { alert('A connection name is required.'); return }
+      if (!profile.projectDir) { alert('A remote project directory is required.'); return }
+      if (!profile.sshAlias && !profile.host) { alert('Provide either an SSH host alias or a host.'); return }
+      const r = editingName
+        ? await window.dshDesktop.connections.update(editingName, profile)
+        : await window.dshDesktop.connections.add(profile)
+      if (!r.ok) { alert(r.error); return }
+      clearForm()
+      renderList()
+    })
+
+    $('testBtn').addEventListener('click', async () => {
+      const out = $('testOutput')
+      out.className = 'test-output'
+      out.textContent = 'Testing…'
+      out.style.display = 'block'
+      $('testBtn').disabled = true
+      const r = await window.dshDesktop.connections.test(readForm())
+      $('testBtn').disabled = false
+      out.textContent = r.output || (r.ok ? 'OK' : 'Failed')
+      out.className = 'test-output ' + (r.ok ? 'ok' : 'fail')
+    })
+
+    $('clearBtn').addEventListener('click', clearForm)
+
+    if (window.dshDesktop && window.dshDesktop.onStatus) {
+      window.dshDesktop.onStatus((s) => {
+        if (!s) return
+        const labels = { starting: 'starting', ready: 'ready', error: 'error', exited: 'stopped' }
+        $('mode').textContent = (s.mode || 'Local') + ' · ' + (labels[s.state] || s.state)
+      })
+    }
+
+    clearForm()
+    renderList()
+  </script>
+</body>
+</html>

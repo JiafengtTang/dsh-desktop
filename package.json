@@ -1,0 +1,45 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DSH Desktop",
+  "version": "0.1.0",
+  "description": "A native macOS desktop shell for DeepSeek Harness (dsh), with Codex-desktop-style conveniences: managed backend, native menu & shortcuts, tray, notifications and multi-window.",
+  "main": "electron/main.js",
+  "private": true,
+  "license": "MIT",
+  "author": "DSH Desktop contributors",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.dsh.desktop",
+    "productName": "DSH Desktop",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon.icns"
+    }
+  }
+}
