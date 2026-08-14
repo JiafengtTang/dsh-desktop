@@ -5,6 +5,7 @@ const { randomUUID } = require('node:crypto')
 const { EventEmitter } = require('node:events')
 const net = require('node:net')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
 const { READY_LINE_RE } = require('./backend')
@@ -97,26 +98,61 @@ function baseSshArgs(p, forward) {
   return args
 }
 
-function remoteDshCommand(p) {
+function remoteDshCommand(p, localDshHome) {
   const env = p.dshHome ? 'DSH_HOME=' + shellQuote(p.dshHome) + ' ' : ''
   const projectDir = p.projectDir && String(p.projectDir).trim() ? p.projectDir : '~'
-  // Best-effort remote bootstrap: install the dsh-web-ui suite on the remote
-  // so the same features (task board / SSH panel / skins) show there too.
-  const install = p.dshCommand + ' plugin --profile web add ' + WEB_UI_ALL
+  const { specs, hasBilling } = remotePluginSync(p, localDshHome)
+  const install = p.dshCommand + ' plugin --profile web add ' + specs.join(' ')
   const bootstrap =
     install + ' >/dev/null 2>&1; ' +
     'sed -i "s/set this to true or false/true/g" "$HOME/.dsh/profiles/web/pnpm-workspace.yaml" 2>/dev/null; ' +
-    install + ' >/dev/null 2>&1; true'
-  const billingBootstrap = remoteBillingBootstrap(p)
-  const inner = 'cd ' + cdArg(projectDir) + ' && ' + bootstrap + ' && ' + billingBootstrap + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
+    install + ' >/dev/null 2>&1 && ' + (hasBilling ? remoteBillingPatch() : 'true') + '; true'
+  const inner = 'cd ' + cdArg(projectDir) + ' && ' + bootstrap + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
   return p.remoteShell + ' -lc ' + shellQuote(inner)
 }
 
-// Install the billing plugin and write its cordis layer on the remote server.
-function remoteBillingBootstrap(p) {
+// Resolve the local web-profile plugins that should also exist on the remote.
+function remotePluginSync(p, localDshHome) {
+  const manifest = path.join(localDshHome, 'profiles', 'web', 'package.json')
+  let pkg = null
+  try { pkg = JSON.parse(fs.readFileSync(manifest, 'utf8')) } catch { /* fall through */ }
+
+  const specs = []
+  let hasBilling = false
+  if (pkg && pkg.dependencies && typeof pkg.dependencies === 'object') {
+    for (const [name, spec] of Object.entries(pkg.dependencies)) {
+      if (name === '@deepseek-ai/dsh-llm-billing') {
+        specs.push(shellQuote(BILLING_LLM_TGZ))
+        hasBilling = true
+        continue
+      }
+      if (name === '@deepseek-ai/dsh-client-ui-billing') {
+        specs.push(shellQuote(BILLING_UI_TGZ))
+        hasBilling = true
+        continue
+      }
+      if (typeof spec !== 'string') continue
+      const value = spec.trim()
+      if (!value || /^(file|link):/.test(value)) continue
+      if (/^https?:\/\//.test(value)) {
+        specs.push(shellQuote(value))
+      } else {
+        specs.push(shellQuote(name + '@' + value))
+      }
+    }
+  }
+
+  if (specs.length === 0) {
+    specs.push(shellQuote(WEB_UI_ALL), shellQuote(BILLING_LLM_TGZ), shellQuote(BILLING_UI_TGZ))
+    hasBilling = true
+  }
+  return { specs, hasBilling }
+}
+
+// Write the billing cordis layer on the remote server (idempotent).
+function remoteBillingPatch() {
   const patch = '"$HOME/.dsh/profiles/web/cordis.patch.yml"'
-  const install = `${p.dshCommand} plugin --profile web add ${shellQuote(BILLING_LLM_TGZ)} ${shellQuote(BILLING_UI_TGZ)}`
-  const patchOnce = [
+  return [
     'mkdir -p "$HOME/.dsh/profiles/web"',
     'touch ' + patch,
     'if ! grep -q "dsh-billing managed" ' + patch + '; then',
@@ -131,23 +167,21 @@ function remoteBillingBootstrap(p) {
     "    echo '# --- end dsh-billing managed ---'",
     '  } >> ' + patch,
     'fi',
-  ].join('\n')
-  const installOnce = install + ' >/dev/null 2>&1'
-  const applyAndRetry = '{ ' + patchOnce + '; ' + install + ' >/dev/null 2>&1; }'
-  return installOnce + ' && ' + applyAndRetry + '; true'
+  ].join('; ')
 }
 
-function buildSshArgs(p, localPort) {
+function buildSshArgs(p, localPort, localDshHome) {
   // -tt forces a pseudo-TTY so the remote dsh process group receives SIGHUP and
   // exits when this SSH connection closes, instead of being orphaned.
-  return [...baseSshArgs(p, { local: localPort }), '-tt', sshTarget(p), remoteDshCommand(p)]
+  return [...baseSshArgs(p, { local: localPort }), '-tt', sshTarget(p), remoteDshCommand(p, localDshHome)]
 }
 
 class RemoteBackend extends EventEmitter {
-  constructor({ profile, logPath }) {
+  constructor({ profile, logPath, localDshHome }) {
     super()
     this.profile = normalizeProfile(profile)
     this.logPath = logPath
+    this.localDshHome = localDshHome || path.join(os.homedir(), '.dsh')
     this.child = null
     this.url = null
     this.localPort = null
@@ -184,7 +218,7 @@ class RemoteBackend extends EventEmitter {
     this.url = null
     this._openLog()
 
-    const args = buildSshArgs(p, this.localPort)
+    const args = buildSshArgs(p, this.localPort, this.localDshHome)
     this.child = spawn(resolveSsh(), args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, TERM: 'xterm-256color' }

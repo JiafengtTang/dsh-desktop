@@ -13,6 +13,7 @@ const { buildMenu } = require('./menu')
 const { createTray } = require('./tray')
 const { listSshConfigHosts } = require('./sshconfig')
 const { bootstrapWebUi, bootstrapBilling } = require('./bootstrap')
+const { checkForUpdates } = require('./updater')
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -209,7 +210,7 @@ function main() {
         instance = new DshBackend({ settings, logPath })
         instance.label = 'Local'
       } else {
-        instance = new RemoteBackend({ profile, logPath })
+        instance = new RemoteBackend({ profile, logPath, localDshHome: dshHome })
         instance.label = profile.name
       }
     }
@@ -378,6 +379,11 @@ function main() {
 
     const log = (msg) => console.log('[dsh-desktop][bootstrap]', msg)
     const dshHome = settings.get('dshHome') || path.join(os.homedir(), '.dsh')
+    checkForUpdates({
+      currentVersion: app.getVersion(),
+      silent: true,
+      log: (msg) => console.log('[dsh-desktop][updater]', msg),
+    }).catch((err) => console.warn('[dsh-desktop][updater]', err.message || err))
     const webUiBootstrap = settings.get('integrateWebUi', true)
       ? bootstrapWebUi({ dshHome, log }).catch((err) => { log('web-ui failed: ' + (err.message || err)); return {} })
       : Promise.resolve({})
