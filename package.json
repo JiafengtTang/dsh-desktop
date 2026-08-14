@@ -29,11 +29,19 @@
       "renderer/**/*",
       "assets/**/*",
       "vendor/**/*",
+      "node_modules/@deepseek-ai/**/*",
       "package.json"
     ],
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "node_modules/@deepseek-ai",
+        "to": "app/node_modules/@deepseek-ai",
+        "filter": ["**/*"]
+      }
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
