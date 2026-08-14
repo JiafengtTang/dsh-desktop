@@ -210,7 +210,8 @@ function main() {
         instance = new DshBackend({ settings, logPath })
         instance.label = 'Local'
       } else {
-        instance = new RemoteBackend({ profile, logPath, localDshHome: dshHome })
+        const localDshHome = settings.get('dshHome') || path.join(os.homedir(), '.dsh')
+        instance = new RemoteBackend({ profile, logPath, localDshHome })
         instance.label = profile.name
       }
     }
