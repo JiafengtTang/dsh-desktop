@@ -133,6 +133,10 @@ Requirements on the remote host:
 - Node.js ≥ 20, plus either `npx` (the default) or a pre-installed `dsh`.
 - No fixed remote port is required when using the default `0`.
 
+On the first remote connection the app also installs the billing plugin into the
+remote profile, so the session-header DeepSeek balance badge appears for remote
+projects just like it does locally.
+
 Click **Test connection** to verify SSH, Node, and the project directory before
 connecting, then **Use** to activate it. The app tunnels
 `127.0.0.1:<local-port>` → `127.0.0.1:<remote-port>` over SSH; the dsh `/api`
