@@ -12,7 +12,7 @@ const { ConnectionStore } = require('./connections')
 const { buildMenu } = require('./menu')
 const { createTray } = require('./tray')
 const { listSshConfigHosts } = require('./sshconfig')
-const { bootstrapWebUi } = require('./bootstrap')
+const { bootstrapWebUi, bootstrapBilling } = require('./bootstrap')
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -378,9 +378,11 @@ function main() {
 
     const log = (msg) => console.log('[dsh-desktop][bootstrap]', msg)
     const dshHome = settings.get('dshHome') || path.join(os.homedir(), '.dsh')
-    const bootstrap = settings.get('integrateWebUi', true)
-      ? bootstrapWebUi({ dshHome, log }).catch((err) => { log('failed: ' + (err.message || err)); return {} })
+    const webUiBootstrap = settings.get('integrateWebUi', true)
+      ? bootstrapWebUi({ dshHome, log }).catch((err) => { log('web-ui failed: ' + (err.message || err)); return {} })
       : Promise.resolve({})
+    const billingBootstrap = bootstrapBilling({ dshHome, log }).catch((err) => { log('billing failed: ' + (err.message || err)); return {} })
+    const bootstrap = Promise.all([webUiBootstrap, billingBootstrap])
     bootstrap.finally(() => startBackend())
   })
 

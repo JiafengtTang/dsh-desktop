@@ -6,8 +6,12 @@ const path = require('node:path')
 const { resolveDshBin } = require('./backend')
 
 const WEB_UI_ALL = '@linxin666/dsh-web-ui-all@0.1.10'
+const BILLING_LLM = '@deepseek-ai/dsh-llm-billing'
+const BILLING_UI = '@deepseek-ai/dsh-client-ui-billing'
 const MANAGED_START = '# --- dsh-skin managed (auto-generated; do not edit) ---'
 const MANAGED_END = '# --- end dsh-skin managed ---'
+const BILLING_MANAGED_START = '# --- dsh-billing managed (auto-generated; do not edit) ---'
+const BILLING_MANAGED_END = '# --- end dsh-billing managed ---'
 
 // Skin ids shipped by dsh-web-ui (blue-fantasy is the one we enable).
 const SKIN_IDS = ['dragon-heir', 'miku', 'minecraft', 'qq98', 'ths', 'trading', 'whale-song', 'xp']
@@ -47,6 +51,43 @@ function applyBlueFantasySkin(dshHome) {
   return patchPath
 }
 
+// Resolve the bundled billing plugin tarballs shipped beside this app.
+function billingTarballs() {
+  const dir = path.join(__dirname, '..', 'vendor', 'dsh-billing-plugin')
+  return [
+    path.join(dir, 'deepseek-ai-dsh-llm-billing-0.1.0-rc.5.tgz'),
+    path.join(dir, 'deepseek-ai-dsh-client-ui-billing-0.1.0-rc.5.tgz'),
+  ]
+}
+
+// Wire both billing plugin packages into the profile's cordis layer.
+function applyBillingPatch(dshHome) {
+  const patchPath = path.join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
+  const block = [
+    BILLING_MANAGED_START,
+    '- insert:',
+    '    - id: llm-billing',
+    "      name: '@deepseek-ai/dsh-llm-billing'",
+    '    - id: ui-billing',
+    "      name: '@deepseek-ai/dsh-client-ui-billing'",
+    BILLING_MANAGED_END,
+  ].join('\n')
+
+  let text = ''
+  try { text = fs.readFileSync(patchPath, 'utf8') } catch { /* first run */ }
+  const start = text.indexOf(BILLING_MANAGED_START)
+  const end = text.indexOf(BILLING_MANAGED_END)
+  if (start !== -1 && end !== -1) {
+    text = text.slice(0, start) + text.slice(end + BILLING_MANAGED_END.length)
+  }
+  // Replace an empty root list so the patch remains one valid YAML document.
+  text = text.replace(/\[\s*\]\s*$/, '')
+  text = text.replace(/\s+$/, '')
+  fs.mkdirSync(path.dirname(patchPath), { recursive: true })
+  fs.writeFileSync(patchPath, text ? text + '\n\n' + block + '\n' : block + '\n')
+  return patchPath
+}
+
 // Whether the dsh-web-ui aggregate is already resolvable from the web profile.
 function isWebUiInstalled(dshHome) {
   const manifest = path.join(dshHome, 'profiles', 'web', 'package.json')
@@ -59,8 +100,27 @@ function isWebUiInstalled(dshHome) {
   }
 }
 
+// Whether both billing plugin packages are present in the web profile manifest.
+function isBillingInstalled(dshHome) {
+  const manifest = path.join(dshHome, 'profiles', 'web', 'package.json')
+  try {
+    const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+    const deps = (pkg.dependencies && typeof pkg.dependencies === 'object') ? pkg.dependencies : {}
+    return deps[BILLING_LLM] !== undefined && deps[BILLING_UI] !== undefined
+  } catch {
+    return false
+  }
+}
+
+// Install the bundled billing plugin tarballs into the local web profile.
+async function installBilling(dshBin, dshHome, log) {
+  await runPluginAdd(dshBin, dshHome, log, billingTarballs())
+  return isBillingInstalled(dshHome)
+}
+
 // Run `dsh plugin --profile web add <pkg>` with pnpm + node on PATH.
-function runPluginAdd(dshBin, dshHome, log) {
+function runPluginAdd(dshBin, dshHome, log, packages) {
+  const specs = Array.isArray(packages) && packages.length > 0 ? packages : [WEB_UI_ALL]
   return new Promise((resolve) => {
     const node = resolveOnPath('node')
     const pnpm = resolveOnPath('pnpm')
@@ -70,7 +130,7 @@ function runPluginAdd(dshBin, dshHome, log) {
 
     const cmd = node || process.execPath
     const args = node ? [dshBin] : ['--expose-internals', dshBin]
-    args.push('plugin', '--profile', 'web', 'add', WEB_UI_ALL)
+    args.push('plugin', '--profile', 'web', 'add', ...specs)
 
     const child = spawn(cmd, args, { env })
     let out = ''
@@ -145,4 +205,37 @@ async function bootstrapWebUi({ dshHome, log }) {
   return { skinApplied, pluginInstalled }
 }
 
-module.exports = { bootstrapWebUi, applyBlueFantasySkin, isWebUiInstalled }
+// Integrate the DeepSeek billing plugin into the desktop experience.
+async function bootstrapBilling({ dshHome, log }) {
+  const dshBin = resolveDshBin()
+  if (!dshBin) {
+    log('bootstrap: dsh bin not found; skipping billing plugin install')
+    return { patchApplied: false, pluginInstalled: false }
+  }
+
+  let patchApplied = false
+  try {
+    applyBillingPatch(dshHome)
+    patchApplied = true
+  } catch (err) {
+    log('bootstrap: billing patch apply failed: ' + (err.message || err))
+  }
+
+  let pluginInstalled = true
+  if (isBillingInstalled(dshHome)) {
+    log('bootstrap: billing plugin already installed')
+  } else {
+    log('bootstrap: installing billing plugin …')
+    pluginInstalled = await installBilling(dshBin, dshHome, log)
+  }
+  return { patchApplied, pluginInstalled }
+}
+
+module.exports = {
+  bootstrapWebUi,
+  bootstrapBilling,
+  applyBlueFantasySkin,
+  applyBillingPatch,
+  isWebUiInstalled,
+  isBillingInstalled,
+}

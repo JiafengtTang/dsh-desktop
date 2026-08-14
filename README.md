@@ -27,6 +27,9 @@ Codex Desktop:
   `dsh-web-ui` plugin suite (task board, Git graph, SSH panel, skin center,
   Blue Fantasy whale-girl skin, and related plugins) and enables the
   Blue Fantasy skin automatically.
+- **DeepSeek billing badge** — the bundled
+  `DeepSeek-Harness-billing-plugin` shows your real DeepSeek account balance
+  and a per-model remaining-task estimate in the session header.
 
 ## Why DSH Desktop
 
@@ -43,6 +46,9 @@ Codex Desktop:
 - **Plugin suite included automatically** — task board, SSH panel, Git graph,
   skin center and related `dsh-web-ui` plugins are installed and loaded for you
   on first local launch.
+- **Account balance at a glance** — once your DeepSeek API key is configured,
+  each session header shows your live balance and an estimate of how many more
+  tasks the current model can run.
 - **Safe defaults for daily use** — the backend is managed and restartable,
   logs are captured, and remote ports are chosen automatically so separate dsh
   instances do not collide.
@@ -92,6 +98,10 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist
 2. Add a model API key at **Settings → Models** inside the UI (DeepSeek or any
    OpenAI-compatible endpoint).
 3. Choose a workspace folder, then start a session.
+
+The billing badge reads the same DeepSeek key. It appears in a session header
+after a session is opened; if the key or endpoint is unavailable, the badge
+shows an unavailable state instead of a balance.
 
 ## Remote connections (SSH)
 

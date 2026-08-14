@@ -28,6 +28,7 @@
       "electron/**/*",
       "renderer/**/*",
       "assets/**/*",
+      "vendor/**/*",
       "package.json"
     ],
     "directories": {

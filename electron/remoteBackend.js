@@ -10,6 +10,8 @@ const path = require('node:path')
 const { READY_LINE_RE } = require('./backend')
 
 const WEB_UI_ALL = '@linxin666/dsh-web-ui-all@0.1.10'
+const BILLING_LLM_TGZ = 'https://raw.githubusercontent.com/JiafengtTang/dsh-desktop/main/vendor/dsh-billing-plugin/deepseek-ai-dsh-llm-billing-0.1.0-rc.5.tgz'
+const BILLING_UI_TGZ = 'https://raw.githubusercontent.com/JiafengtTang/dsh-desktop/main/vendor/dsh-billing-plugin/deepseek-ai-dsh-client-ui-billing-0.1.0-rc.5.tgz'
 
 const SSH_OPTIONS = [
   '-o', 'StrictHostKeyChecking=accept-new',
@@ -105,8 +107,34 @@ function remoteDshCommand(p) {
     install + ' >/dev/null 2>&1; ' +
     'sed -i "s/set this to true or false/true/g" "$HOME/.dsh/profiles/web/pnpm-workspace.yaml" 2>/dev/null; ' +
     install + ' >/dev/null 2>&1; true'
-  const inner = 'cd ' + cdArg(projectDir) + ' && ' + bootstrap + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
+  const billingBootstrap = remoteBillingBootstrap(p)
+  const inner = 'cd ' + cdArg(projectDir) + ' && ' + bootstrap + ' && ' + billingBootstrap + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
   return p.remoteShell + ' -lc ' + shellQuote(inner)
+}
+
+// Install the billing plugin and write its cordis layer on the remote server.
+function remoteBillingBootstrap(p) {
+  const patch = '"$HOME/.dsh/profiles/web/cordis.patch.yml"'
+  const install = `${p.dshCommand} plugin --profile web add ${shellQuote(BILLING_LLM_TGZ)} ${shellQuote(BILLING_UI_TGZ)}`
+  const patchOnce = [
+    'mkdir -p "$HOME/.dsh/profiles/web"',
+    'touch ' + patch,
+    'if ! grep -q "dsh-billing managed" ' + patch + '; then',
+    '  sed -i "s/^[[:space:]]*\\[\\][[:space:]]*$//" ' + patch,
+    '  {',
+    "    echo '# --- dsh-billing managed (auto-generated; do not edit) ---'",
+    "    echo '- insert:'",
+    "    echo '    - id: llm-billing'",
+    "    echo \"      name: '@deepseek-ai/dsh-llm-billing'\"",
+    "    echo '    - id: ui-billing'",
+    "    echo \"      name: '@deepseek-ai/dsh-client-ui-billing'\"",
+    "    echo '# --- end dsh-billing managed ---'",
+    '  } >> ' + patch,
+    'fi',
+  ].join('\n')
+  const installOnce = install + ' >/dev/null 2>&1'
+  const applyAndRetry = '{ ' + patchOnce + '; ' + install + ' >/dev/null 2>&1; }'
+  return installOnce + ' && ' + applyAndRetry + '; true'
 }
 
 function buildSshArgs(p, localPort) {
