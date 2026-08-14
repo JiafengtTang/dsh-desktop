@@ -103,11 +103,12 @@ function remoteDshCommand(p, localDshHome) {
   const projectDir = p.projectDir && String(p.projectDir).trim() ? p.projectDir : '~'
   const { specs, hasBilling } = remotePluginSync(p, localDshHome)
   const install = p.dshCommand + ' plugin --profile web add ' + specs.join(' ')
+  const ensurePnpm = 'if ! command -v pnpm >/dev/null; then npm install --prefix "$HOME/.dsh/pnpm-bootstrap" pnpm@11 --no-audit --no-fund >/dev/null 2>&1; export PATH="$HOME/.dsh/pnpm-bootstrap/node_modules/.bin:$PATH"; fi'
   const bootstrap =
-    install + ' >/dev/null 2>&1; ' +
+    ensurePnpm + '; ' + install + ' >/dev/null 2>&1; ' +
     'sed -i "s/set this to true or false/true/g" "$HOME/.dsh/profiles/web/pnpm-workspace.yaml" 2>/dev/null; ' +
     install + ' >/dev/null 2>&1 && ' + (hasBilling ? remoteBillingPatch() : 'true') + '; true'
-  const inner = 'cd ' + cdArg(projectDir) + ' && ' + bootstrap + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
+  const inner = 'cd ' + cdArg(projectDir) + ' && ( ' + bootstrap + ' ) & cd ' + cdArg(projectDir) + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
   return p.remoteShell + ' -lc ' + shellQuote(inner)
 }
 
@@ -155,19 +156,16 @@ function remoteBillingPatch() {
   return [
     'mkdir -p "$HOME/.dsh/profiles/web"',
     'touch ' + patch,
-    'if ! grep -q "dsh-billing managed" ' + patch + '; then',
+    'sed -i "/# --- dsh-billing managed/,/# --- end dsh-billing managed ---/d" ' + patch,
     '  sed -i "s/^[[:space:]]*\\[\\][[:space:]]*$//" ' + patch,
-    '  {',
-    "    echo '# --- dsh-billing managed (auto-generated; do not edit) ---'",
-    "    echo '- insert:'",
-    "    echo '    - id: llm-billing'",
-    "    echo \"      name: '@deepseek-ai/dsh-llm-billing'\"",
-    "    echo '    - id: ui-billing'",
-    "    echo \"      name: '@deepseek-ai/dsh-client-ui-billing'\"",
-    "    echo '# --- end dsh-billing managed ---'",
-    '  } >> ' + patch,
-    'fi',
-  ].join('; ')
+    "    echo '# --- dsh-billing managed (auto-generated; do not edit) ---' >> " + patch,
+    "    echo '- insert:' >> " + patch,
+    "    echo '    - id: llm-billing' >> " + patch,
+    "    echo '      name: \"@deepseek-ai/dsh-llm-billing\"' >> " + patch,
+    "    echo '    - id: ui-billing' >> " + patch,
+    "    echo '      name: \"@deepseek-ai/dsh-client-ui-billing\"' >> " + patch,
+    "    echo '# --- end dsh-billing managed ---' >> " + patch,
+  ].join('\n')
 }
 
 function buildSshArgs(p, localPort, localDshHome) {
