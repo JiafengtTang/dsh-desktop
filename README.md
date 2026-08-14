@@ -28,6 +28,25 @@ Codex Desktop:
   Blue Fantasy whale-girl skin, and related plugins) and enables the
   Blue Fantasy skin automatically.
 
+## Why DSH Desktop
+
+- **A real macOS desktop app** — double-click to start, dock icon, native
+  menus, tray, notifications and global shortcuts. No terminal session is left
+  running just to keep the harness alive.
+- **Remote project development, the Codex way** — connect to a server over SSH,
+  browse and select a remote project directory with parent/root navigation,
+  then keep coding exactly as if the project were local. Workspace entries show
+  whether they are local or remote, together with a connection indicator.
+- **Whale-girl desktop identity** — the bundled Blue Fantasy skin and the
+  custom app icon turn the standard web UI into a distinctive macOS desktop
+  experience.
+- **Plugin suite included automatically** — task board, SSH panel, Git graph,
+  skin center and related `dsh-web-ui` plugins are installed and loaded for you
+  on first local launch.
+- **Safe defaults for daily use** — the backend is managed and restartable,
+  logs are captured, and remote ports are chosen automatically so separate dsh
+  instances do not collide.
+
 Everything inside the window is the **real DeepSeek Harness web UI**, so its full
 feature set — sessions, plans, goals, sub-agents, terminal, file editing,
 skills, workspaces and the append-only Trajectory view — works unchanged. The
