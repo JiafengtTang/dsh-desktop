@@ -7,7 +7,7 @@ const fs = require('node:fs')
 
 const { Settings } = require('./settings')
 const { DshBackend } = require('./backend')
-const { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace } = require('./remoteBackend')
+const { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, syncRemotePlugins } = require('./remoteBackend')
 const { ConnectionStore } = require('./connections')
 const { buildMenu } = require('./menu')
 const { createTray } = require('./tray')
@@ -338,6 +338,14 @@ function main() {
   ipcMain.handle('connections:test', async (_event, profile) => {
     try {
       return await testRemoteConnection(profile)
+    } catch (err) {
+      return { ok: false, output: String(err.message || err) }
+    }
+  })
+  ipcMain.handle('connections:syncPlugins', async (_event, profile) => {
+    try {
+      const dshHome = settings.get('dshHome', '') || path.join(os.homedir(), '.dsh')
+      return await syncRemotePlugins(profile, dshHome)
     } catch (err) {
       return { ok: false, output: String(err.message || err) }
     }

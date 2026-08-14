@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     remove: (name) => ipcRenderer.invoke('connections:remove', name),
     activate: (name) => ipcRenderer.invoke('connections:activate', name),
     test: (profile) => ipcRenderer.invoke('connections:test', profile),
+    syncPlugins: (profile) => ipcRenderer.invoke('connections:syncPlugins', profile),
     browse: (profile, dir) => ipcRenderer.invoke('connections:browse', profile, dir),
     setWorkspace: (path) => ipcRenderer.invoke('connections:setWorkspace', path)
   },

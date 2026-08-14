@@ -511,6 +511,7 @@
             <div class="dshd-form-actions">
               <button type="submit" class="dshd-btn primary" id="dshd-save">保存</button>
               <button type="button" class="dshd-btn" id="dshd-test">测试连接</button>
+              <button type="button" class="dshd-btn" id="dshd-sync">同步插件</button>
               <button type="button" class="dshd-btn" id="dshd-cancel">取消</button>
             </div>
             <div class="dshd-test" id="dshd-test"></div>
@@ -555,6 +556,16 @@
       test.style.display = 'block'
       const r = await window.dshDesktop.connections.test(readForm())
       test.textContent = r.output || (r.ok ? '连接正常' : '连接失败')
+      test.className = 'dshd-test ' + (r.ok ? 'ok' : 'fail')
+    })
+
+    document.getElementById('dshd-sync').addEventListener('click', async () => {
+      const test = document.getElementById('dshd-test')
+      test.className = 'dshd-test'
+      test.textContent = '正在同步插件，请稍候…'
+      test.style.display = 'block'
+      const r = await window.dshDesktop.connections.syncPlugins(readForm())
+      test.textContent = r.ok ? (r.output || '同步完成') : (r.output || '同步失败')
       test.className = 'dshd-test ' + (r.ok ? 'ok' : 'fail')
     })
 

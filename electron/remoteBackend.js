@@ -101,14 +101,7 @@ function baseSshArgs(p, forward) {
 function remoteDshCommand(p, localDshHome) {
   const env = p.dshHome ? 'DSH_HOME=' + shellQuote(p.dshHome) + ' ' : ''
   const projectDir = p.projectDir && String(p.projectDir).trim() ? p.projectDir : '~'
-  const { specs, hasBilling } = remotePluginSync(p, localDshHome)
-  const install = p.dshCommand + ' plugin --profile web add ' + specs.join(' ')
-  const ensurePnpm = 'if ! command -v pnpm >/dev/null; then npm install --prefix "$HOME/.dsh/pnpm-bootstrap" pnpm@11 --no-audit --no-fund >/dev/null 2>&1; export PATH="$HOME/.dsh/pnpm-bootstrap/node_modules/.bin:$PATH"; fi'
-  const bootstrap =
-    ensurePnpm + '; ' + install + ' >/dev/null 2>&1; ' +
-    'sed -i "s/set this to true or false/true/g" "$HOME/.dsh/profiles/web/pnpm-workspace.yaml" 2>/dev/null; ' +
-    install + ' >/dev/null 2>&1 && ' + (hasBilling ? remoteBillingPatch() : 'true') + '; true'
-  const inner = 'cd ' + cdArg(projectDir) + ' && ( ' + bootstrap + ' ) & cd ' + cdArg(projectDir) + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
+  const inner = 'cd ' + cdArg(projectDir) + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
   return p.remoteShell + ' -lc ' + shellQuote(inner)
 }
 
@@ -166,6 +159,64 @@ function remoteBillingPatch() {
     "    echo '      name: \"@deepseek-ai/dsh-client-ui-billing\"' >> " + patch,
     "    echo '# --- end dsh-billing managed ---' >> " + patch,
   ].join('\n')
+}
+
+function ensureRemotePnpm() {
+  return 'if ! command -v pnpm >/dev/null; then npm install --prefix "$HOME/.dsh/pnpm-bootstrap" pnpm@11 --no-audit --no-fund >/dev/null 2>&1; export PATH="$HOME/.dsh/pnpm-bootstrap/node_modules/.bin:$PATH"; fi'
+}
+
+// Manually sync this Mac's web-profile plugins to a remote server without
+// starting the remote dsh web server. This is exposed as an explicit action
+// in the connection UI so it never delays a remote connection.
+function syncRemotePlugins(profile, localDshHome) {
+  return new Promise((resolve) => {
+    const p = normalizeProfile(profile)
+    const target = sshTarget(p)
+    if (!target) return resolve({ ok: false, output: 'Missing host or SSH alias.' })
+
+    const { specs, hasBilling } = remotePluginSync(p, localDshHome)
+    const install = p.dshCommand + ' plugin --profile web add ' + specs.join(' ')
+    const patch = hasBilling ? remoteBillingPatch() : 'true'
+    const inner = [
+      'cd ' + cdArg(p.projectDir || '~'),
+      ensureRemotePnpm(),
+      install + ' >/dev/null 2>&1',
+      'sed -i "s/set this to true or false/true/g" "$HOME/.dsh/profiles/web/pnpm-workspace.yaml" 2>/dev/null',
+      install + ' >/dev/null 2>&1 && ' + patch,
+      'echo __DSH_SYNC_DONE__',
+    ].join(' && ')
+    const remote = p.remoteShell + ' -lc ' + shellQuote(inner)
+    const args = [...baseSshArgs(p, null), target, remote]
+    const child = spawn(resolveSsh(), args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, TERM: 'xterm-256color' },
+    })
+
+    let output = ''
+    let settled = false
+    const finish = (ok) => {
+      if (settled) return
+      settled = true
+      resolve({ ok, output: output.trim() })
+    }
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL') } catch {}
+      finish(false)
+    }, 180000)
+
+    child.stdout.on('data', (chunk) => { output += chunk.toString() })
+    child.stderr.on('data', (chunk) => { output += chunk.toString() })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      finish(false)
+      if (output) output += '\n'
+      output += String(err.message || err)
+    })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      finish(code === 0 && output.includes('__DSH_SYNC_DONE__'))
+    })
+  })
 }
 
 function buildSshArgs(p, localPort, localDshHome) {
@@ -387,4 +438,4 @@ async function ensureWorkspace(baseUrl, projectDir) {
   return { ok: false, error: String((lastError && lastError.message) || lastError) }
 }
 
-module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, normalizeProfile, sshTarget, findFreePort, randomHighPort }
+module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, syncRemotePlugins, normalizeProfile, sshTarget, findFreePort, randomHighPort }
