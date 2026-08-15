@@ -33,6 +33,34 @@
       user-select: none; -webkit-user-select: none;
     }
     .dshd-sidebar-entry:hover { background: rgba(128, 140, 170, 0.14); }
+    .dshd-project-switcher {
+      margin: 2px 12px 10px;
+      padding: 8px 0 2px;
+      border-top: 1px solid var(--dshd-border);
+    }
+    .dshd-project-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 8px 6px; color: var(--dshd-muted);
+      font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+      text-transform: uppercase; user-select: none; -webkit-user-select: none;
+    }
+    .dshd-project-item {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; margin: 0 0 4px; padding: 0 8px; height: 32px; border-radius: 8px;
+      border: none; background: transparent; color: inherit; cursor: pointer;
+      font: inherit; font-size: 12.5px; text-align: left;
+      user-select: none; -webkit-user-select: none;
+    }
+    .dshd-project-item:hover { background: rgba(128, 140, 170, 0.14); }
+    .dshd-project-item.active { background: rgba(79, 140, 255, 0.16); }
+    .dshd-project-item .dshd-project-icon { flex: 0 0 auto; font-size: 13px; }
+    .dshd-project-item .dshd-project-body { flex: 1; min-width: 0; }
+    .dshd-project-item .dshd-project-name {
+      font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .dshd-project-item .dshd-project-sub {
+      color: var(--dshd-muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .dshd-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7a94; flex: 0 0 auto; }
     .dshd-dot.ready { background: #34c98e; }
     .dshd-dot.starting { background: #e5b93b; }
@@ -141,6 +169,7 @@
     const entryStatus = document.getElementById('dshd-entry-status')
     if (entryStatus) entryStatus.textContent = currentMode + ' · ' + stateLabel
     updateWorkspaceStatus()
+    renderProjectSwitcher()
   }
 
   function stateLabel(state) {
@@ -248,6 +277,58 @@
       (active ? '' : '<button class="dshd-btn primary" data-activate="' + esc(id) + '">连接</button>') +
       (id === 'local' ? '' : '<button class="dshd-btn" data-edit="' + esc(id) + '">编辑</button><button class="dshd-btn danger" data-delete="' + esc(id) + '">删</button>') +
       '</div>'
+  }
+
+  function projectItemHtml(id, name, sub, active) {
+    const icon = id === 'local' ? '💻' : '🖥'
+    const kind = id === 'local' ? '本地' : '远程'
+    return '<button type="button" class="dshd-project-item' + (active ? ' active' : '') + '" data-project-activate="' + esc(id) + '">' +
+      '<span class="dshd-project-icon">' + icon + '</span>' +
+      '<span class="dshd-project-body">' +
+        '<div class="dshd-project-name">' + esc(name) + (active ? ' <span style="color:#34c98e;font-size:10px;">●</span>' : '') + '</div>' +
+        '<div class="dshd-project-sub">' + esc(kind) + ' · ' + esc(sub) + '</div>' +
+      '</span>' +
+    '</button>'
+  }
+
+  async function renderProjectSwitcher() {
+    const box = document.getElementById('dshd-project-list')
+    if (!box) return
+    let data
+    try {
+      data = await window.dshDesktop.connections.list()
+    } catch {
+      return
+    }
+    const items = [projectItemHtml('local', '本机（当前电脑）', '在本地运行', data.active === 'local')]
+    for (const c of data.connections) {
+      items.push(projectItemHtml(c.name, c.name, targetText(c) + ' · ' + (c.projectDir || '未指定目录'), data.active === c.name))
+    }
+    box.innerHTML = items.join('')
+    box.querySelectorAll('[data-project-activate]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const id = el.getAttribute('data-project-activate')
+        try {
+          const r = await window.dshDesktop.connections.activate(id)
+          if (!r.ok) alert('切换失败：' + r.error)
+        } catch (err) {
+          alert('切换失败：' + (err.message || err))
+        }
+      })
+    })
+  }
+
+  function injectProjectSwitcher() {
+    const sidebar = document.querySelector('.hHd-Xa_root')
+    if (!sidebar || document.getElementById('dshd-project-switcher')) return
+    const wrap = document.createElement('div')
+    wrap.id = 'dshd-project-switcher'
+    wrap.className = 'dshd-project-switcher'
+    wrap.innerHTML = '<div class="dshd-project-header"><span>项目</span><span>本地 / 远程</span></div><div id="dshd-project-list"></div>'
+    const region = sidebar.querySelector('.hHd-Xa_regionArea')
+    if (region) sidebar.insertBefore(wrap, region)
+    else sidebar.appendChild(wrap)
+    renderProjectSwitcher()
   }
 
   function openForm(existing) {
@@ -382,7 +463,7 @@
     entry.type = 'button'
     entry.id = 'dshd-sidebar-entry'
     entry.className = 'dshd-sidebar-entry'
-    entry.innerHTML = '<span class="dshd-dot" id="dshd-dot"></span><span>远程连接</span><span class="dshd-entry-status" id="dshd-entry-status"></span>'
+    entry.innerHTML = '<span class="dshd-dot" id="dshd-dot"></span><span>管理远程连接…</span><span class="dshd-entry-status" id="dshd-entry-status"></span>'
     const region = sidebar.querySelector('.hHd-Xa_regionArea')
     if (region) sidebar.insertBefore(entry, region)
     else sidebar.appendChild(entry)
@@ -644,13 +725,15 @@
     }
 
     injectSidebarEntry()
+    injectProjectSwitcher()
     injectWsDialogNav()
     injectWorkspaceStatusLight()
     markWorkspaceRows()
-    setTimeout(injectSidebarEntry, 300)
-    setTimeout(injectSidebarEntry, 1200)
+    setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 300)
+    setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 1200)
     new MutationObserver(() => {
       injectSidebarEntry()
+      injectProjectSwitcher()
       injectWsDialogNav()
       injectWorkspaceStatusLight()
       markWorkspaceRows()
