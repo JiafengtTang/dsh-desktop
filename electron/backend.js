@@ -1,6 +1,6 @@
 'use strict'
 
-const { spawn } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 const { EventEmitter } = require('node:events')
 const fs = require('node:fs')
 const os = require('node:os')
@@ -28,6 +28,37 @@ function resolveBundledPnpm() {
   }
 }
 
+// Resolve a real system Node if one is installed (preferred for pnpm, which is a
+// normal Node CLI and should not inherit Electron-specific quirks).
+function resolveSystemNode() {
+  const isWin = process.platform === 'win32'
+  if (isWin) {
+    const where = spawnSync('where.exe', ['node'], { encoding: 'utf8' })
+    if (where.status === 0 && where.stdout) {
+      const line = String(where.stdout).trim().split(/\r?\n/)[0].trim()
+      if (line && fs.existsSync(line)) return line
+    }
+    const candidates = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Program Files (x86)\\nodejs\\node.exe'
+    ]
+    for (const candidate of candidates) {
+      if (candidate && fs.existsSync(candidate)) return candidate
+    }
+    return null
+  }
+  const which = spawnSync('which', ['node'], { encoding: 'utf8' })
+  if (which.status === 0 && which.stdout && which.stdout.trim()) {
+    const line = which.stdout.trim().split('\n')[0].trim()
+    if (line && fs.existsSync(line)) return line
+  }
+  for (const candidate of ['/usr/local/bin/node', '/opt/homebrew/bin/node', '/opt/local/bin/node', '/usr/bin/node']) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
+}
+
 let pnpmShimDirCache = null
 
 function shellQuoteForSh(value) {
@@ -50,17 +81,26 @@ function pnpmShimDir() {
   }
 
   const isWin = process.platform === 'win32'
+  const systemNode = resolveSystemNode()
   if (isWin) {
     const shim = path.join(dir, 'pnpm.cmd')
     try {
-      fs.writeFileSync(shim, '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"' + process.execPath + '" "' + pnpmMjs + '" %*\r\n')
+      if (systemNode) {
+        fs.writeFileSync(shim, '@echo off\r\n"' + systemNode + '" "' + pnpmMjs + '" %*\r\n')
+      } else {
+        fs.writeFileSync(shim, '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"' + process.execPath + '" "' + pnpmMjs + '" %*\r\n')
+      }
     } catch {
       return null
     }
   } else {
     const shim = path.join(dir, 'pnpm')
     try {
-      fs.writeFileSync(shim, '#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ' + shellQuoteForSh(process.execPath) + ' ' + shellQuoteForSh(pnpmMjs) + ' "$@"\n')
+      if (systemNode) {
+        fs.writeFileSync(shim, '#!/bin/sh\nexec ' + shellQuoteForSh(systemNode) + ' ' + shellQuoteForSh(pnpmMjs) + ' "$@"\n')
+      } else {
+        fs.writeFileSync(shim, '#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ' + shellQuoteForSh(process.execPath) + ' ' + shellQuoteForSh(pnpmMjs) + ' "$@"\n')
+      }
       fs.chmodSync(shim, 0o755)
     } catch {
       return null

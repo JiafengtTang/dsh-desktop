@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DSH Desktop",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A native desktop shell for DeepSeek Harness (dsh) on macOS and Windows, with Codex-desktop-style conveniences: managed backend, remote SSH projects, native menu & shortcuts, tray, notifications and multi-window.",
   "main": "electron/main.js",
   "private": true,

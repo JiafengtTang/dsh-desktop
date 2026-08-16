@@ -69,10 +69,14 @@ function clearBlueFantasySkin(dshHome) {
   try { text = fs.readFileSync(patchPath, 'utf8') } catch { return }
   const start = text.indexOf(MANAGED_START)
   const end = text.indexOf(MANAGED_END)
-  if (start === -1 || end === -1) return
-  text = text.slice(0, start) + text.slice(end + MANAGED_END.length)
+  if (start !== -1 && end !== -1) {
+    text = text.slice(0, start) + text.slice(end + MANAGED_END.length)
+  }
   text = text.replace(/\s+$/, '')
-  try { fs.writeFileSync(patchPath, text ? text + '\n' : '') } catch {}
+  try {
+    if (text.trim() === '') fs.unlinkSync(patchPath)
+    else fs.writeFileSync(patchPath, text + '\n')
+  } catch {}
 }
 
 // The Blue Fantasy skin ships as a bundled sub-package inside @linxin666/dsh-skins
@@ -141,11 +145,15 @@ function clearBillingPatch(dshHome) {
   try { text = fs.readFileSync(patchPath, 'utf8') } catch { return }
   const start = text.indexOf(BILLING_MANAGED_START)
   const end = text.indexOf(BILLING_MANAGED_END)
-  if (start === -1 || end === -1) return
-  text = text.slice(0, start) + text.slice(end + BILLING_MANAGED_END.length)
+  if (start !== -1 && end !== -1) {
+    text = text.slice(0, start) + text.slice(end + BILLING_MANAGED_END.length)
+  }
   text = text.replace(/\[\s*\]\s*$/, '')
   text = text.replace(/\s+$/, '')
-  try { fs.writeFileSync(patchPath, text ? text + '\n' : '') } catch {}
+  try {
+    if (text.trim() === '') fs.unlinkSync(patchPath)
+    else fs.writeFileSync(patchPath, text + '\n')
+  } catch {}
 }
 
 // Whether the dsh-web-ui aggregate is already resolvable from the web profile.

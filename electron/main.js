@@ -476,7 +476,15 @@ function main() {
     registerShortcut()
     createMainWindow()
 
-    const log = (msg) => console.log('[dsh-desktop][bootstrap]', msg)
+    const bootstrapLogPath = path.join(userData, 'logs', 'bootstrap.log')
+    const log = (msg) => {
+      const line = '[dsh-desktop][bootstrap] ' + msg
+      console.log(line)
+      try {
+        fs.mkdirSync(path.dirname(bootstrapLogPath), { recursive: true })
+        fs.appendFileSync(bootstrapLogPath, line + '\n')
+      } catch {}
+    }
     const dshHome = settings.get('dshHome') || path.join(os.homedir(), '.dsh')
     checkForUpdates({
       currentVersion: app.getVersion(),
