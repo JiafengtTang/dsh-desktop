@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DSH Desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A native desktop shell for DeepSeek Harness (dsh) on macOS and Windows, with Codex-desktop-style conveniences: managed backend, remote SSH projects, native menu & shortcuts, tray, notifications and multi-window.",
   "main": "electron/main.js",
   "private": true,
@@ -14,7 +14,8 @@
     "dist": "electron-builder"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.6"
+    "@deepseek-ai/dsh": "0.1.0-rc.6",
+    "pnpm": "11.21.0"
   },
   "devDependencies": {
     "electron": "^43.0.0",

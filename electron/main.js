@@ -483,12 +483,13 @@ function main() {
       silent: true,
       log: (msg) => console.log('[dsh-desktop][updater]', msg),
     }).catch((err) => console.warn('[dsh-desktop][updater]', err.message || err))
-    const webUiBootstrap = settings.get('integrateWebUi', true)
-      ? bootstrapWebUi({ dshHome, log }).catch((err) => { log('web-ui failed: ' + (err.message || err)); return {} })
-      : Promise.resolve({})
-    const billingBootstrap = bootstrapBilling({ dshHome, log }).catch((err) => { log('billing failed: ' + (err.message || err)); return {} })
-    const fileMountBootstrap = bootstrapFileMount({ dshHome, log }).catch((err) => { log('file-mount failed: ' + (err.message || err)); return {} })
-    const bootstrap = Promise.all([webUiBootstrap, billingBootstrap, fileMountBootstrap])
+    const bootstrap = (async () => {
+      if (settings.get('integrateWebUi', true)) {
+        await bootstrapWebUi({ dshHome, log }).catch((err) => { log('web-ui failed: ' + (err.message || err)); return {} })
+      }
+      await bootstrapBilling({ dshHome, log }).catch((err) => { log('billing failed: ' + (err.message || err)); return {} })
+      await bootstrapFileMount({ dshHome, log }).catch((err) => { log('file-mount failed: ' + (err.message || err)); return {} })
+    })()
     bootstrap.finally(() => startBackend())
   })
 

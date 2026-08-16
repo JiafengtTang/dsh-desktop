@@ -3,6 +3,7 @@
 const { spawn } = require('node:child_process')
 const { EventEmitter } = require('node:events')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
 // The dsh web server prints exactly one readiness line:
@@ -16,6 +17,58 @@ function resolveDshBin() {
   } catch {
     return null
   }
+}
+
+function resolveBundledPnpm() {
+  try {
+    const pkg = require.resolve('pnpm')
+    return path.join(path.dirname(pkg), 'bin', 'pnpm.mjs')
+  } catch {
+    return null
+  }
+}
+
+let pnpmShimDirCache = null
+
+function shellQuoteForSh(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'"
+}
+
+// Provide a `pnpm` executable on PATH that runs the bundled pnpm via Electron's
+// Node. `dsh plugin` shells out to a plain `pnpm` command, so this removes the
+// requirement that the user has pnpm installed on their machine.
+function pnpmShimDir() {
+  if (pnpmShimDirCache) return pnpmShimDirCache
+  const pnpmMjs = resolveBundledPnpm()
+  if (!pnpmMjs) return null
+
+  const dir = path.join(os.tmpdir(), 'dsh-desktop-tools')
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+  } catch {
+    return null
+  }
+
+  const isWin = process.platform === 'win32'
+  if (isWin) {
+    const shim = path.join(dir, 'pnpm.cmd')
+    try {
+      fs.writeFileSync(shim, '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"' + process.execPath + '" "' + pnpmMjs + '" %*\r\n')
+    } catch {
+      return null
+    }
+  } else {
+    const shim = path.join(dir, 'pnpm')
+    try {
+      fs.writeFileSync(shim, '#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ' + shellQuoteForSh(process.execPath) + ' ' + shellQuoteForSh(pnpmMjs) + ' "$@"\n')
+      fs.chmodSync(shim, 0o755)
+    } catch {
+      return null
+    }
+  }
+
+  pnpmShimDirCache = dir
+  return dir
 }
 
 // Resolve a Node runtime. Order of preference:
@@ -148,4 +201,4 @@ class DshBackend extends EventEmitter {
   }
 }
 
-module.exports = { DshBackend, resolveDshBin, resolveNodeCommand, READY_LINE_RE }
+module.exports = { DshBackend, resolveDshBin, resolveNodeCommand, pnpmShimDir, READY_LINE_RE }

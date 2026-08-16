@@ -5,7 +5,7 @@ const fs = require('node:fs')
 const fsp = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
-const { resolveDshBin } = require('./backend')
+const { resolveDshBin, pnpmShimDir } = require('./backend')
 
 const PROFILE = 'web'
 
@@ -181,11 +181,11 @@ function run(cmd, args, opts = {}, timeoutMs = 300000) {
 }
 
 function runDshPlugin(dshBin, dshHome, verbArgs, log) {
-  const tools = toolPath()
-  const env = { ...process.env, DSH_HOME: dshHome, PATH: tools.PATH }
-  const cmd = tools.node || process.execPath
-  const args = tools.node ? [dshBin] : ['--expose-internals', dshBin]
-  args.push('plugin', '--profile', PROFILE, ...verbArgs)
+  const env = { ...process.env, DSH_HOME: dshHome, ELECTRON_RUN_AS_NODE: '1' }
+  const shimDir = pnpmShimDir()
+  if (shimDir) env.PATH = shimDir + path.delimiter + (env.PATH || '')
+  const cmd = process.execPath
+  const args = ['--expose-internals', dshBin, 'plugin', '--profile', PROFILE, ...verbArgs]
   log('plugins: ' + args.join(' '))
   return run(cmd, args, { env }, 300000)
 }

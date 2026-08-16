@@ -3,7 +3,7 @@
 const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
-const { resolveDshBin } = require('./backend')
+const { resolveDshBin, pnpmShimDir } = require('./backend')
 
 const WEB_UI_ALL = '@linxin666/dsh-web-ui-all@0.1.10'
 const BILLING_LLM = '@deepseek-ai/dsh-llm-billing'
@@ -61,6 +61,37 @@ function applyBlueFantasySkin(dshHome) {
   return patchPath
 }
 
+// Remove the managed Blue Fantasy skin block (used when web-ui is absent, so a
+// stale patch never references an uninstalled skin package).
+function clearBlueFantasySkin(dshHome) {
+  const patchPath = path.join(dshHome, 'cordis.patch.yml')
+  let text = ''
+  try { text = fs.readFileSync(patchPath, 'utf8') } catch { return }
+  const start = text.indexOf(MANAGED_START)
+  const end = text.indexOf(MANAGED_END)
+  if (start === -1 || end === -1) return
+  text = text.slice(0, start) + text.slice(end + MANAGED_END.length)
+  text = text.replace(/\s+$/, '')
+  try { fs.writeFileSync(patchPath, text ? text + '\n' : '') } catch {}
+}
+
+// The Blue Fantasy skin ships as a bundled sub-package inside @linxin666/dsh-skins
+// (skins/blue-fantasy). Surface it as a resolvable top-level package name so the
+// skin patch's `name: '@linxin666/dsh-client-ui-skin-blue-fantasy'` resolves.
+function ensureBlueFantasySkin(dshHome) {
+  const modules = path.join(dshHome, 'profiles', 'web', 'node_modules', '@linxin666')
+  const source = path.join(modules, 'dsh-skins', 'skins', 'blue-fantasy')
+  const dest = path.join(modules, 'dsh-client-ui-skin-blue-fantasy')
+  if (!fs.existsSync(source)) return false
+  try {
+    if (fs.existsSync(dest)) return true
+    fs.cpSync(source, dest, { recursive: true })
+    return fs.existsSync(path.join(dest, 'package.json'))
+  } catch {
+    return false
+  }
+}
+
 // Resolve the bundled billing plugin tarballs shipped beside this app.
 function billingTarballs() {
   const dir = path.join(__dirname, '..', 'vendor', 'dsh-billing-plugin')
@@ -101,6 +132,20 @@ function applyBillingPatch(dshHome) {
   fs.mkdirSync(path.dirname(patchPath), { recursive: true })
   fs.writeFileSync(patchPath, text ? text + '\n\n' + block + '\n' : block + '\n')
   return patchPath
+}
+
+// Remove the managed billing block (used when billing is absent).
+function clearBillingPatch(dshHome) {
+  const patchPath = path.join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
+  let text = ''
+  try { text = fs.readFileSync(patchPath, 'utf8') } catch { return }
+  const start = text.indexOf(BILLING_MANAGED_START)
+  const end = text.indexOf(BILLING_MANAGED_END)
+  if (start === -1 || end === -1) return
+  text = text.slice(0, start) + text.slice(end + BILLING_MANAGED_END.length)
+  text = text.replace(/\[\s*\]\s*$/, '')
+  text = text.replace(/\s+$/, '')
+  try { fs.writeFileSync(patchPath, text ? text + '\n' : '') } catch {}
 }
 
 // Whether the dsh-web-ui aggregate is already resolvable from the web profile.
@@ -155,15 +200,12 @@ async function installFileMount(dshBin, dshHome, log) {
 function runPluginAdd(dshBin, dshHome, log, packages) {
   const specs = Array.isArray(packages) && packages.length > 0 ? packages : [WEB_UI_ALL]
   return new Promise((resolve) => {
-    const node = resolveOnPath('node')
-    const pnpm = resolveOnPath('pnpm')
-    const env = { ...process.env, DSH_HOME: dshHome }
-    if (pnpm) env.PATH = path.dirname(pnpm) + path.delimiter + (env.PATH || '')
-    if (node) env.PATH = path.dirname(node) + path.delimiter + env.PATH
+    const env = { ...process.env, DSH_HOME: dshHome, ELECTRON_RUN_AS_NODE: '1' }
+    const shimDir = pnpmShimDir()
+    if (shimDir) env.PATH = shimDir + path.delimiter + (env.PATH || '')
 
-    const cmd = node || process.execPath
-    const args = node ? [dshBin] : ['--expose-internals', dshBin]
-    args.push('plugin', '--profile', 'web', 'add', ...specs)
+    const cmd = process.execPath
+    const args = ['--expose-internals', dshBin, 'plugin', '--profile', 'web', 'add', ...specs]
 
     const child = spawn(cmd, args, { env })
     let out = ''
@@ -220,20 +262,29 @@ async function bootstrapWebUi({ dshHome, log }) {
     log('bootstrap: dsh bin not found; skipping plugin install')
     return { skinApplied: false, pluginInstalled: false }
   }
-  let skinApplied = false
-  try {
-    applyBlueFantasySkin(dshHome)
-    skinApplied = true
-  } catch (err) {
-    log('bootstrap: skin apply failed: ' + (err.message || err))
-  }
 
-  let pluginInstalled = true
-  if (isWebUiInstalled(dshHome)) {
-    log('bootstrap: dsh-web-ui already installed')
-  } else {
+  let pluginInstalled = isWebUiInstalled(dshHome)
+  if (!pluginInstalled) {
     log('bootstrap: installing ' + WEB_UI_ALL + ' …')
     pluginInstalled = await installWebUiAll(dshBin, dshHome, log)
+  } else {
+    log('bootstrap: dsh-web-ui already installed')
+  }
+
+  let skinApplied = false
+  if (pluginInstalled) {
+    try {
+      if (!ensureBlueFantasySkin(dshHome)) {
+        log('bootstrap: blue-fantasy skin not available in dsh-skins')
+      }
+      applyBlueFantasySkin(dshHome)
+      skinApplied = true
+    } catch (err) {
+      log('bootstrap: skin apply failed: ' + (err.message || err))
+    }
+  } else {
+    log('bootstrap: web-ui unavailable; clearing stale skin patch')
+    try { clearBlueFantasySkin(dshHome) } catch (err) { log('bootstrap: clear skin failed: ' + (err.message || err)) }
   }
   return { skinApplied, pluginInstalled }
 }
@@ -246,20 +297,25 @@ async function bootstrapBilling({ dshHome, log }) {
     return { patchApplied: false, pluginInstalled: false }
   }
 
-  let patchApplied = false
-  try {
-    applyBillingPatch(dshHome)
-    patchApplied = true
-  } catch (err) {
-    log('bootstrap: billing patch apply failed: ' + (err.message || err))
-  }
-
-  let pluginInstalled = true
-  if (isBillingInstalled(dshHome)) {
-    log('bootstrap: billing plugin already installed')
-  } else {
+  let pluginInstalled = isBillingInstalled(dshHome)
+  if (!pluginInstalled) {
     log('bootstrap: installing billing plugin …')
     pluginInstalled = await installBilling(dshBin, dshHome, log)
+  } else {
+    log('bootstrap: billing plugin already installed')
+  }
+
+  let patchApplied = false
+  if (pluginInstalled) {
+    try {
+      applyBillingPatch(dshHome)
+      patchApplied = true
+    } catch (err) {
+      log('bootstrap: billing patch apply failed: ' + (err.message || err))
+    }
+  } else {
+    log('bootstrap: billing unavailable; clearing stale billing patch')
+    try { clearBillingPatch(dshHome) } catch (err) { log('bootstrap: clear billing failed: ' + (err.message || err)) }
   }
   return { patchApplied, pluginInstalled }
 }
