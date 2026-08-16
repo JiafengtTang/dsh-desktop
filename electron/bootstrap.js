@@ -19,8 +19,17 @@ const SKIN_IDS = ['dragon-heir', 'miku', 'minecraft', 'qq98', 'ths', 'trading', 
 const ACTIVE_SKIN = 'blue-fantasy'
 
 function resolveOnPath(name) {
-  const which = spawnSync('which', [name], { encoding: 'utf8' })
-  if (which.status === 0 && which.stdout && which.stdout.trim()) return which.stdout.trim()
+  const isWin = process.platform === 'win32'
+  const lookup = isWin
+    ? spawnSync('where.exe', [name], { encoding: 'utf8' })
+    : spawnSync('which', [name], { encoding: 'utf8' })
+  if (lookup.status === 0 && lookup.stdout) {
+    const lines = String(lookup.stdout).trim().split(/\r?\n/).filter(Boolean)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed && fs.existsSync(trimmed)) return trimmed
+    }
+  }
   return null
 }
 

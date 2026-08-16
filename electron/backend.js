@@ -1,6 +1,6 @@
 'use strict'
 
-const { spawn, spawnSync } = require('node:child_process')
+const { spawn } = require('node:child_process')
 const { EventEmitter } = require('node:events')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -18,45 +18,9 @@ function resolveDshBin() {
   }
 }
 
-// Common absolute locations for a user-installed Node. Finder-launched apps get
-// a minimal PATH that omits these, so `which`/`where` alone is not enough.
-const NODE_CANDIDATES = process.platform === 'win32'
-  ? [
-      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
-      'C:\\Program Files\\nodejs\\node.exe',
-      'C:\\Program Files (x86)\\nodejs\\node.exe'
-    ]
-  : [
-      '/usr/local/bin/node',
-      '/opt/homebrew/bin/node',
-      '/opt/local/bin/node',
-      '/usr/bin/node'
-    ]
-
-// Ask a login shell for `node`'s path. This covers nvm/volta/asdf-style setups
-// where node only appears after the user's profile is sourced.
-function resolveNodeViaShell() {
-  if (process.platform === 'win32') return null
-  for (const shell of ['bash', 'zsh', 'sh']) {
-    try {
-      const result = spawnSync(shell, ['-lc', 'command -v node 2>/dev/null'], { encoding: 'utf8' })
-      if (result.status === 0 && result.stdout) {
-        const line = result.stdout.trim().split('\n')[0].trim()
-        if (line && fs.existsSync(line)) return line
-      }
-    } catch {
-      /* try the next shell */
-    }
-  }
-  return null
-}
-
 // Resolve a Node runtime. Order of preference:
 //   1. DSH_DESKTOP_NODE (explicit override)
-//   2. `node` on PATH
-//   3. common absolute install paths
-//   4. the login shell's `node` (nvm/volta/etc.)
-//   5. Electron itself, run as Node via ELECTRON_RUN_AS_NODE, with
+//   2. Electron itself, run as Node via ELECTRON_RUN_AS_NODE, with
 //      --expose-internals so dsh's HMR loader can reach Node internals without
 //      the node-addon-require-builtin native addon (ABI-mismatched under Electron).
 function resolveNodeCommand(scriptPath, args) {
@@ -64,29 +28,9 @@ function resolveNodeCommand(scriptPath, args) {
   if (override) {
     return { cmd: override, args: [scriptPath, ...args], env: {} }
   }
-
-  const isWin = process.platform === 'win32'
-  const lookup = isWin
-    ? spawnSync('where.exe', ['node'], { encoding: 'utf8' })
-    : spawnSync('which', ['node'], { encoding: 'utf8' })
-  if (lookup.status === 0 && lookup.stdout && lookup.stdout.trim()) {
-    const line = lookup.stdout.trim().split(/\r?\n/)[0].trim()
-    if (line && fs.existsSync(line)) {
-      return { cmd: line, args: [scriptPath, ...args], env: {} }
-    }
-  }
-
-  for (const candidate of NODE_CANDIDATES) {
-    if (candidate && fs.existsSync(candidate)) {
-      return { cmd: candidate, args: [scriptPath, ...args], env: {} }
-    }
-  }
-
-  const viaShell = resolveNodeViaShell()
-  if (viaShell) {
-    return { cmd: viaShell, args: [scriptPath, ...args], env: {} }
-  }
-
+  // Electron's bundled Node is always present and version-matched to the
+  // packaged dependencies and rebuilt native modules, so it is the reliable
+  // default on both macOS and Windows (no separate Node install required).
   return {
     cmd: process.execPath,
     args: ['--expose-internals', scriptPath, ...args],

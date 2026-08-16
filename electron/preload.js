@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('dshDesktop', {
   info: () => ipcRenderer.invoke('desktop:info'),
   restart: () => ipcRenderer.invoke('desktop:restart'),
+  openLogs: () => ipcRenderer.invoke('desktop:open-logs'),
   openConnections: () => ipcRenderer.invoke('desktop:open-connections'),
   openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
   ssh: {

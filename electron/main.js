@@ -323,8 +323,18 @@ function main() {
     mode: backend ? backend.label : null,
     dshHome: settings.get('dshHome', '') || path.join(os.homedir(), '.dsh'),
     settingsFile,
-    connectionsFile
+    connectionsFile,
+    logPath
   }))
+  ipcMain.handle('desktop:open-logs', () => {
+    try {
+      fs.mkdirSync(path.dirname(logPath), { recursive: true })
+      shell.openPath(logPath)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) }
+    }
+  })
   ipcMain.handle('desktop:restart', async () => {
     restartBackend()
     return true

@@ -10,11 +10,21 @@ const { resolveDshBin } = require('./backend')
 const PROFILE = 'web'
 
 function resolveTool(name, candidates) {
-  const which = spawnSync('which', [name], { encoding: 'utf8' })
-  if (which.status === 0 && which.stdout && which.stdout.trim()) return which.stdout.trim()
+  const isWin = process.platform === 'win32'
+  const lookup = isWin
+    ? spawnSync('where.exe', [name], { encoding: 'utf8' })
+    : spawnSync('which', [name], { encoding: 'utf8' })
+  if (lookup.status === 0 && lookup.stdout) {
+    const lines = String(lookup.stdout).trim().split(/\r?\n/).filter(Boolean)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed && fs.existsSync(trimmed)) return trimmed
+    }
+  }
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate
   }
+  if (isWin) return null
   for (const shell of ['zsh', 'bash', 'sh']) {
     const result = spawnSync(shell, ['-lc', 'command -v ' + name + ' 2>/dev/null'], { encoding: 'utf8' })
     if (result.status === 0 && result.stdout && result.stdout.trim()) {
@@ -26,10 +36,21 @@ function resolveTool(name, candidates) {
 }
 
 function toolPath() {
-  const node = resolveTool('node', ['/usr/local/bin/node', '/opt/homebrew/bin/node', '/opt/local/bin/node', '/usr/bin/node'])
-  const pnpm = resolveTool('pnpm', ['/opt/homebrew/bin/pnpm', '/usr/local/bin/pnpm'])
-  const npm = resolveTool('npm', ['/usr/local/bin/npm', '/opt/homebrew/bin/npm', '/usr/bin/npm'])
-  const git = resolveTool('git', ['/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git'])
+  const isWin = process.platform === 'win32'
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+  const node = resolveTool('node', isWin
+    ? [path.join(programFiles, 'nodejs', 'node.exe'), path.join(programFilesX86, 'nodejs', 'node.exe')]
+    : ['/usr/local/bin/node', '/opt/homebrew/bin/node', '/opt/local/bin/node', '/usr/bin/node'])
+  const pnpm = resolveTool('pnpm', isWin
+    ? [path.join(process.env.APPDATA || '', 'npm', 'pnpm.cmd')]
+    : ['/opt/homebrew/bin/pnpm', '/usr/local/bin/pnpm'])
+  const npm = resolveTool('npm', isWin
+    ? [path.join(programFiles, 'nodejs', 'npm.cmd'), path.join(programFilesX86, 'nodejs', 'npm.cmd')]
+    : ['/usr/local/bin/npm', '/opt/homebrew/bin/npm', '/usr/bin/npm'])
+  const git = resolveTool('git', isWin
+    ? [path.join(programFiles, 'Git', 'cmd', 'git.exe')]
+    : ['/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git'])
   const extra = [node, pnpm, npm, git].filter(Boolean).map((p) => path.dirname(p))
   const PATH = extra.length
     ? [...new Set([...extra, ...(process.env.PATH || '').split(path.delimiter).filter(Boolean)])].join(path.delimiter)

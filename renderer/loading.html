@@ -123,10 +123,7 @@
         window.dshDesktop.restart()
       })
       document.getElementById('logs').addEventListener('click', async () => {
-        const info = await window.dshDesktop.info()
-        if (info && info.settingsFile) {
-          window.dshDesktop.openExternal('file://' + encodeURI(info.settingsFile.replace('/settings.json', '/logs/backend.log')))
-        }
+        await window.dshDesktop.openLogs()
       })
       document.getElementById('connections').addEventListener('click', () => {
         window.dshDesktop.openConnections()
