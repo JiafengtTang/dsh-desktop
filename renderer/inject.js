@@ -54,6 +54,16 @@
     .dshd-project-item:hover { background: rgba(128, 140, 170, 0.14); }
     .dshd-project-item.active { background: rgba(79, 140, 255, 0.16); }
     .dshd-project-item .dshd-project-icon { flex: 0 0 auto; font-size: 13px; }
+    .dshd-ws-group { margin: 0 0 6px; }
+    .dshd-ws-group-head { display: flex; align-items: center; gap: 6px; padding: 2px 8px 4px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+    .dshd-ws-group-head:hover { opacity: 0.82; }
+    .dshd-ws-group-head .dshd-dot { width: 7px; height: 7px; }
+    .dshd-ws-group-name { flex: 1; min-width: 0; font-weight: 700; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dshd-ws-group-kind { flex: none; font-size: 10px; color: var(--dshd-muted); }
+    .dshd-ws-empty { padding: 0 8px 6px; color: var(--dshd-muted); font-size: 11px; }
+    .dshd-ws-connect { display: flex; align-items: center; gap: 7px; margin: 0 8px 5px; padding: 0 8px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--dshd-text); user-select: none; -webkit-user-select: none; }
+    .dshd-ws-connect:hover { background: rgba(128, 140, 170, 0.14); }
+    .dshd-ws-connect .dshd-dot { width: 7px; height: 7px; }
     .dshd-project-item .dshd-project-body { flex: 1; min-width: 0; }
     .dshd-project-item .dshd-project-name {
       font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -279,43 +289,95 @@
       '</div>'
   }
 
-  function projectItemHtml(id, name, sub, active) {
-    const icon = id === 'local' ? '💻' : '🖥'
-    const kind = id === 'local' ? '本地' : '远程'
-    return '<button type="button" class="dshd-project-item' + (active ? ' active' : '') + '" data-project-activate="' + esc(id) + '">' +
-      '<span class="dshd-project-icon">' + icon + '</span>' +
+  function groupHeadHtml(key, name, kind, active, icon) {
+    return '<div class="dshd-ws-group-head" data-ws-group="' + esc(key) + '">' +
+      '<span class="dshd-dot ' + (active ? 'ready' : '') + '"></span>' +
+      '<span class="dshd-ws-group-name">' + icon + ' ' + esc(name) + '</span>' +
+      '<span class="dshd-ws-group-kind">' + esc(kind) + '</span>' +
+    '</div>'
+  }
+
+  function workspaceItemHtml(key, it) {
+    return '<button type="button" class="dshd-project-item" data-ws-open="1" data-ws-key="' + esc(key) + '">' +
+      '<span class="dshd-project-icon">📁</span>' +
       '<span class="dshd-project-body">' +
-        '<div class="dshd-project-name">' + esc(name) + (active ? ' <span style="color:#34c98e;font-size:10px;">●</span>' : '') + '</div>' +
-        '<div class="dshd-project-sub">' + esc(kind) + ' · ' + esc(sub) + '</div>' +
+        '<div class="dshd-project-name">' + esc(it.title || it.path) + '</div>' +
+        '<div class="dshd-project-sub">' + esc(it.path || '') + '</div>' +
       '</span>' +
     '</button>'
+  }
+
+  function connectRowHtml(key, name, icon) {
+    return '<div class="dshd-ws-connect" data-ws-open="1" data-ws-key="' + esc(key) + '">' +
+      '<span class="dshd-dot"></span><span>' + icon + ' ' + esc(name) + '（点击连接）</span>' +
+    '</div>'
   }
 
   async function renderProjectSwitcher() {
     const box = document.getElementById('dshd-project-list')
     if (!box) return
-    let data
+    if (window.__dshRenderWsInFlight__) return
+    window.__dshRenderWsInFlight__ = true
     try {
-      data = await window.dshDesktop.connections.list()
-    } catch {
-      return
-    }
-    const items = [projectItemHtml('local', '本机（当前电脑）', '在本地运行', data.active === 'local')]
-    for (const c of data.connections) {
-      items.push(projectItemHtml(c.name, c.name, targetText(c) + ' · ' + (c.projectDir || '未指定目录'), data.active === c.name))
-    }
-    box.innerHTML = items.join('')
-    box.querySelectorAll('[data-project-activate]').forEach((el) => {
-      el.addEventListener('click', async () => {
-        const id = el.getAttribute('data-project-activate')
+      let wsData
+      let connData
+      try {
+        wsData = await window.dshDesktop.workspaces.list()
+        connData = await window.dshDesktop.connections.list()
+      } catch {
+        return
+      }
+
+      const active = wsData.active || connData.active || 'local'
+      const byKey = {}
+      for (const g of (wsData.groups || [])) byKey[g.key] = g
+
+      const parts = []
+
+      const localGroup = byKey['local']
+      parts.push(groupHeadHtml('local', '本机（当前电脑）', '本地', active === 'local', '💻'))
+      if (localGroup) {
+        parts.push(...(localGroup.items || []).map((it) => workspaceItemHtml('local', it)))
+        if (!(localGroup.items && localGroup.items.length)) {
+          parts.push('<div class="dshd-ws-empty">' + (localGroup.error ? esc(localGroup.error) : '暂无工作区') + '</div>')
+        }
+      } else {
+        parts.push(connectRowHtml('local', '本机（当前电脑）', '💻'))
+      }
+
+      for (const c of (connData.connections || [])) {
+        const g = byKey[c.name]
+        parts.push(groupHeadHtml(c.name, c.name, g ? '远程' : '未连接', active === c.name, '🖥'))
+        if (g) {
+          parts.push(...(g.items || []).map((it) => workspaceItemHtml(c.name, it)))
+          if (!(g.items && g.items.length)) {
+            parts.push('<div class="dshd-ws-empty">' + (g.error ? esc(g.error) : '暂无工作区') + '</div>')
+          }
+        } else {
+          parts.push(connectRowHtml(c.name, c.name, '🖥'))
+        }
+      }
+
+      box.innerHTML = parts.join('')
+
+      const activate = async (key) => {
+        if (key === active) return
         try {
-          const r = await window.dshDesktop.connections.activate(id)
+          const r = await window.dshDesktop.connections.activate(key)
           if (!r.ok) alert('切换失败：' + r.error)
         } catch (err) {
           alert('切换失败：' + (err.message || err))
         }
+      }
+      box.querySelectorAll('[data-ws-group]').forEach((el) => {
+        el.addEventListener('click', () => activate(el.getAttribute('data-ws-group')))
       })
-    })
+      box.querySelectorAll('[data-ws-open]').forEach((el) => {
+        el.addEventListener('click', () => activate(el.getAttribute('data-ws-key')))
+      })
+    } finally {
+      window.__dshRenderWsInFlight__ = false
+    }
   }
 
   function injectProjectSwitcher() {
@@ -324,7 +386,7 @@
     const wrap = document.createElement('div')
     wrap.id = 'dshd-project-switcher'
     wrap.className = 'dshd-project-switcher'
-    wrap.innerHTML = '<div class="dshd-project-header"><span>项目</span><span>本地 / 远程</span></div><div id="dshd-project-list"></div>'
+    wrap.innerHTML = '<div class="dshd-project-header"><span>工作区</span><span>本地 / 远程</span></div><div id="dshd-project-list"></div>'
     const region = sidebar.querySelector('.hHd-Xa_regionArea')
     if (region) sidebar.insertBefore(wrap, region)
     else sidebar.appendChild(wrap)

@@ -63,6 +63,22 @@ function sshTarget(p) {
 
 function resolveSsh() {
   if (process.env.DSH_DESKTOP_SSH) return process.env.DSH_DESKTOP_SSH
+  if (process.platform === 'win32') {
+    const systemRoot = process.env.SystemRoot || 'C:\\Windows'
+    const candidates = [
+      path.join(systemRoot, 'System32', 'OpenSSH', 'ssh.exe'),
+      'C:\\Windows\\System32\\OpenSSH\\ssh.exe'
+    ]
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate
+    }
+    const where = spawnSync('where.exe', ['ssh'], { encoding: 'utf8' })
+    if (where.status === 0 && where.stdout && where.stdout.trim()) {
+      const line = where.stdout.trim().split(/\r?\n/)[0].trim()
+      if (line && fs.existsSync(line)) return line
+    }
+    return 'ssh'
+  }
   if (fs.existsSync('/usr/bin/ssh')) return '/usr/bin/ssh'
   const which = spawnSync('which', ['ssh'], { encoding: 'utf8' })
   if (which.status === 0 && which.stdout && which.stdout.trim()) return which.stdout.trim()
@@ -438,4 +454,37 @@ async function ensureWorkspace(baseUrl, projectDir) {
   return { ok: false, error: String((lastError && lastError.message) || lastError) }
 }
 
-module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, syncRemotePlugins, normalizeProfile, sshTarget, findFreePort, randomHighPort }
+// List registered workspaces from a running backend's RPC API. Used to merge
+// local and remote workspace lists into one sidebar view.
+async function listWorkspaces(baseUrl, timeoutMs = 4000) {
+  const url = String(baseUrl).replace(/\/+$/, '') + '/api/workspace.list'
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client-request',
+        rpcId: randomUUID(),
+        method: 'workspace.list',
+        payload: {}
+      }),
+      signal: controller.signal
+    })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const data = await res.json()
+    if (data && data.result && data.result.ok === true && data.result.value) {
+      return {
+        items: data.result.value.items || [],
+        archivedSessionIds: data.result.value.archivedSessionIds || []
+      }
+    }
+    const err = data && data.result && data.result.error
+    throw new Error((err && (err.message || err.code)) || 'workspace.list failed')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, normalizeProfile, sshTarget, findFreePort, randomHighPort }

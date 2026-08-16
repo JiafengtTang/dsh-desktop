@@ -14,6 +14,7 @@ function buildMenu(handlers) {
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'Cmd+,', click: handlers.onOpenSettings },
         { label: 'Connections…', accelerator: 'Cmd+Shift+C', click: handlers.onOpenConnections },
+        { label: 'Plugins…', accelerator: 'Cmd+Shift+P', click: handlers.onOpenPlugins },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -29,6 +30,12 @@ function buildMenu(handlers) {
   template.push({
     label: 'File',
     submenu: [
+      ...(isMac ? [] : [
+        { label: 'Settings…', click: handlers.onOpenSettings },
+        { label: 'Connections…', click: handlers.onOpenConnections },
+        { label: 'Plugins…', click: handlers.onOpenPlugins },
+        { type: 'separator' }
+      ]),
       { label: 'New Window', accelerator: 'Cmd+N', click: handlers.onNewWindow },
       { type: 'separator' },
       isMac ? { role: 'close' } : { role: 'quit' }

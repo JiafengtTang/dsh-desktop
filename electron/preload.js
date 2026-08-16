@@ -21,6 +21,14 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     browse: (profile, dir) => ipcRenderer.invoke('connections:browse', profile, dir),
     setWorkspace: (path) => ipcRenderer.invoke('connections:setWorkspace', path)
   },
+  plugins: {
+    list: () => ipcRenderer.invoke('plugins:list'),
+    install: (spec) => ipcRenderer.invoke('plugins:install', spec),
+    remove: (name) => ipcRenderer.invoke('plugins:remove', name)
+  },
+  workspaces: {
+    list: () => ipcRenderer.invoke('workspaces:list')
+  },
   onStatus: (callback) => {
     const listener = (_event, status) => callback(status)
     ipcRenderer.on('backend:status', listener)

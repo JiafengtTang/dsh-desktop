@@ -8,6 +8,7 @@ const { resolveDshBin } = require('./backend')
 const WEB_UI_ALL = '@linxin666/dsh-web-ui-all@0.1.10'
 const BILLING_LLM = '@deepseek-ai/dsh-llm-billing'
 const BILLING_UI = '@deepseek-ai/dsh-client-ui-billing'
+const FILE_MOUNT = 'dsh-file-mount'
 const MANAGED_START = '# --- dsh-skin managed (auto-generated; do not edit) ---'
 const MANAGED_END = '# --- end dsh-skin managed ---'
 const BILLING_MANAGED_START = '# --- dsh-billing managed (auto-generated; do not edit) ---'
@@ -58,6 +59,11 @@ function billingTarballs() {
     path.join(dir, 'deepseek-ai-dsh-llm-billing-0.1.0-rc.5.tgz'),
     path.join(dir, 'deepseek-ai-dsh-client-ui-billing-0.1.0-rc.5.tgz'),
   ]
+}
+
+// Resolve the bundled dsh-file-mount tarball shipped beside this app.
+function fileMountTarball() {
+  return path.join(__dirname, '..', 'vendor', 'dsh-file-mount', 'dsh-file-mount-0.4.0.tgz')
 }
 
 // Wire both billing plugin packages into the profile's cordis layer.
@@ -112,10 +118,28 @@ function isBillingInstalled(dshHome) {
   }
 }
 
+// Whether dsh-file-mount is present in the web profile manifest.
+function isFileMountInstalled(dshHome) {
+  const manifest = path.join(dshHome, 'profiles', 'web', 'package.json')
+  try {
+    const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+    const deps = (pkg.dependencies && typeof pkg.dependencies === 'object') ? pkg.dependencies : {}
+    return deps[FILE_MOUNT] !== undefined
+  } catch {
+    return false
+  }
+}
+
 // Install the bundled billing plugin tarballs into the local web profile.
 async function installBilling(dshBin, dshHome, log) {
   await runPluginAdd(dshBin, dshHome, log, billingTarballs())
   return isBillingInstalled(dshHome)
+}
+
+// Install the bundled dsh-file-mount tarball into the local web profile.
+async function installFileMount(dshBin, dshHome, log) {
+  await runPluginAdd(dshBin, dshHome, log, [fileMountTarball()])
+  return isFileMountInstalled(dshHome)
 }
 
 // Run `dsh plugin --profile web add <pkg>` with pnpm + node on PATH.
@@ -231,11 +255,31 @@ async function bootstrapBilling({ dshHome, log }) {
   return { patchApplied, pluginInstalled }
 }
 
+// Integrate the dsh-file-mount plugin into the desktop experience.
+async function bootstrapFileMount({ dshHome, log }) {
+  const dshBin = resolveDshBin()
+  if (!dshBin) {
+    log('bootstrap: dsh bin not found; skipping dsh-file-mount install')
+    return { pluginInstalled: false }
+  }
+
+  if (isFileMountInstalled(dshHome)) {
+    log('bootstrap: dsh-file-mount already installed')
+    return { pluginInstalled: true }
+  }
+
+  log('bootstrap: installing dsh-file-mount …')
+  const pluginInstalled = await installFileMount(dshBin, dshHome, log)
+  return { pluginInstalled }
+}
+
 module.exports = {
   bootstrapWebUi,
   bootstrapBilling,
+  bootstrapFileMount,
   applyBlueFantasySkin,
   applyBillingPatch,
   isWebUiInstalled,
   isBillingInstalled,
+  isFileMountInstalled,
 }

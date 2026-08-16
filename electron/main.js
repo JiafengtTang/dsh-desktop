@@ -7,13 +7,14 @@ const fs = require('node:fs')
 
 const { Settings } = require('./settings')
 const { DshBackend } = require('./backend')
-const { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, syncRemotePlugins } = require('./remoteBackend')
+const { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins } = require('./remoteBackend')
 const { ConnectionStore } = require('./connections')
 const { buildMenu } = require('./menu')
 const { createTray } = require('./tray')
 const { listSshConfigHosts } = require('./sshconfig')
-const { bootstrapWebUi, bootstrapBilling } = require('./bootstrap')
+const { bootstrapWebUi, bootstrapBilling, bootstrapFileMount } = require('./bootstrap')
 const { checkForUpdates } = require('./updater')
+const { listPlugins, installPlugin, removePlugin } = require('./plugins')
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -27,6 +28,7 @@ function main() {
   let prefsWindow = null
   let tray = null
   let backend = null
+  const backends = new Map()
   let settings = null
   let connections = null
   let quitting = false
@@ -170,42 +172,49 @@ function main() {
     } catch {}
   }
 
-  function onBackendReady(url) {
-    console.log('[dsh-desktop] backend ready:', backend && backend.label, url)
-    loadAll(url, false)
-    sendStatus({ state: 'ready', url, mode: backend && backend.label })
-    notify('DeepSeek Harness is ready', (backend && backend.label ? backend.label + ' · ' : '') + url)
-
+  function connectionKey() {
+    return connections.active()
   }
 
-  function onBackendExit(info) {
-    console.warn('[dsh-desktop] backend exited:', backend && backend.label, info)
-    sendStatus({ state: 'exited', mode: backend && backend.label, ...info })
+  function onBackendReady(instance, url) {
+    console.log('[dsh-desktop] backend ready:', instance.label, url)
+    if (instance !== backend) return
+    loadAll(url, false)
+    sendStatus({ state: 'ready', url, mode: instance.label })
+    notify('DeepSeek Harness is ready', (instance.label ? instance.label + ' · ' : '') + url)
+  }
+
+  function onBackendExit(instance, info) {
+    const wasActive = instance === backend
+    if (wasActive) backend = null
+    backends.delete(instance.connectionKey)
+    console.warn('[dsh-desktop] backend exited:', instance.label, info)
+    if (!wasActive) {
+      if (!quitting) notify('后台连接已停止', (instance.label || 'Backend') + ' 已在后台停止。')
+      return
+    }
+    sendStatus({ state: 'exited', mode: instance.label, ...info })
     if (!quitting && settings.get('autoRestart', true) && info.wasReady) {
       notify('DeepSeek Harness stopped unexpectedly', 'Restarting the backend…')
-      setTimeout(() => {
-        backend = null
-        startBackend()
-      }, 800)
+      setTimeout(() => startBackend(connectionKey()), 800)
     }
   }
 
-  function onBackendError(err) {
+  function onBackendError(instance, err) {
     const message = (err && err.message) || String(err)
     console.error('[dsh-desktop] backend error:', err)
-    sendStatus({ state: 'error', mode: backend && backend.label, message })
+    if (instance !== backend) return
+    sendStatus({ state: 'error', mode: instance.label, message })
     dialog.showErrorBox('DeepSeek Harness backend error', message)
   }
 
-  function startBackend() {
-    if (backend) return
-    const active = connections.active()
+  function createBackend(key) {
     let instance
-    if (active === 'local') {
+    if (key === 'local') {
       instance = new DshBackend({ settings, logPath })
       instance.label = 'Local'
     } else {
-      const profile = connections.get(active)
+      const profile = connections.get(key)
       if (!profile) {
         instance = new DshBackend({ settings, logPath })
         instance.label = 'Local'
@@ -215,33 +224,60 @@ function main() {
         instance.label = profile.name
       }
     }
+    return instance
+  }
 
+  function attachBackend(instance, key) {
+    instance.connectionKey = key
+    instance.on('ready', (url) => onBackendReady(instance, url))
+    instance.on('exit', (info) => onBackendExit(instance, info))
+    instance.on('error', (err) => onBackendError(instance, err))
+    backends.set(key, instance)
+  }
+
+  function activateBackend(key) {
+    const instance = backends.get(key) || null
     backend = instance
-    backend.on('ready', onBackendReady)
-    backend.on('exit', onBackendExit)
-    backend.on('error', onBackendError)
-    sendStatus({ state: 'starting', mode: backend.label })
+    if (instance && instance.url) {
+      loadAll(instance.url, false)
+      sendStatus({ state: 'ready', url: instance.url, mode: instance.label })
+    } else {
+      loadAll(loadingFile, true)
+    }
+  }
 
-    const started = backend.start()
-    if (started && typeof started.then === 'function') started.catch((err) => onBackendError(err))
+  function startBackend(key) {
+    const targetKey = key == null ? connectionKey() : key
+    let instance = backends.get(targetKey)
+    if (!instance) {
+      instance = createBackend(targetKey)
+      attachBackend(instance, targetKey)
+    }
+    activateBackend(targetKey)
+    if (!instance.running) {
+      sendStatus({ state: 'starting', mode: instance.label })
+      const started = instance.start()
+      if (started && typeof started.then === 'function') started.catch((err) => onBackendError(instance, err))
+    }
   }
 
   function restartBackend() {
-    const current = backend
-    if (current) {
-      current.stop().finally(() => {
-        backend = null
-        startBackend()
-      })
-    } else {
-      startBackend()
+    const key = connectionKey()
+    const instance = backends.get(key)
+    if (!instance) {
+      startBackend(key)
+      return
     }
+    backends.delete(key)
+    if (backend === instance) backend = null
+    instance.removeAllListeners()
+    instance.stop().finally(() => startBackend(key))
   }
 
   function switchConnection(name) {
     connections.setActive(name)
     loadAll(loadingFile, true)
-    restartBackend()
+    startBackend(name)
   }
 
   function buildAppMenu() {
@@ -250,6 +286,7 @@ function main() {
       onShow: showWindow,
       onOpenSettings: openSettings,
       onOpenConnections: () => createPrefsWindow(),
+      onOpenPlugins: () => createPrefsWindow(),
       onOpenLogs: () => {
         try {
           fs.mkdirSync(path.dirname(logPath), { recursive: true })
@@ -370,6 +407,49 @@ function main() {
     return listSshConfigHosts()
   })
 
+  // ---- IPC: workspaces (merged local + remote) ----
+  ipcMain.handle('workspaces:list', async () => {
+    const order = ['local', ...connections.list().map((c) => c.name)]
+    const groups = await Promise.all(order.map(async (key) => {
+      const instance = backends.get(key)
+      if (!instance || !instance.running || !instance.url) return null
+      const kind = key === 'local' ? 'local' : 'remote'
+      const label = key === 'local' ? '本机' : (instance.label || key)
+      const group = { key, label, kind, items: [], error: null }
+      try {
+        const result = await listWorkspaces(instance.url)
+        group.items = result.items.map((it) => ({
+          workspaceId: it.workspaceId,
+          path: it.path,
+          title: it.title
+        }))
+      } catch (err) {
+        group.error = String((err && err.message) || err)
+      }
+      return group
+    }))
+    return { ok: true, active: connections.active(), groups: groups.filter(Boolean) }
+  })
+
+  // ---- IPC: plugins ----
+  const pluginLog = (msg) => console.log('[dsh-desktop][plugins]', msg)
+  const currentDshHome = () => settings.get('dshHome', '') || path.join(os.homedir(), '.dsh')
+  ipcMain.handle('plugins:list', () => listPlugins(currentDshHome()))
+  ipcMain.handle('plugins:install', async (_event, spec) => {
+    try {
+      return await installPlugin(currentDshHome(), spec, pluginLog)
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) }
+    }
+  })
+  ipcMain.handle('plugins:remove', async (_event, name) => {
+    try {
+      return await removePlugin(currentDshHome(), name, pluginLog)
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) }
+    }
+  })
+
   app.on('second-instance', () => showWindow())
 
   app.whenReady().then(() => {
@@ -397,7 +477,8 @@ function main() {
       ? bootstrapWebUi({ dshHome, log }).catch((err) => { log('web-ui failed: ' + (err.message || err)); return {} })
       : Promise.resolve({})
     const billingBootstrap = bootstrapBilling({ dshHome, log }).catch((err) => { log('billing failed: ' + (err.message || err)); return {} })
-    const bootstrap = Promise.all([webUiBootstrap, billingBootstrap])
+    const fileMountBootstrap = bootstrapFileMount({ dshHome, log }).catch((err) => { log('file-mount failed: ' + (err.message || err)); return {} })
+    const bootstrap = Promise.all([webUiBootstrap, billingBootstrap, fileMountBootstrap])
     bootstrap.finally(() => startBackend())
   })
 
@@ -416,12 +497,11 @@ function main() {
 
   app.on('will-quit', (event) => {
     globalShortcut.unregisterAll()
-    if (backendStopped || !backend) return
+    if (backendStopped) return
+    const running = [...backends.values()].filter((b) => b && b.running)
+    if (running.length === 0) return
     event.preventDefault()
-    backend.stop().then(() => {
-      backendStopped = true
-      app.quit()
-    }).catch(() => {
+    Promise.allSettled(running.map((b) => b.stop())).then(() => {
       backendStopped = true
       app.quit()
     })

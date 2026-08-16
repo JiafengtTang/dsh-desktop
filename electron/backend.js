@@ -19,18 +19,24 @@ function resolveDshBin() {
 }
 
 // Common absolute locations for a user-installed Node. Finder-launched apps get
-// a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) that omits these, so `which`
-// alone is not enough.
-const NODE_CANDIDATES = [
-  '/usr/local/bin/node',
-  '/opt/homebrew/bin/node',
-  '/opt/local/bin/node',
-  '/usr/bin/node'
-]
+// a minimal PATH that omits these, so `which`/`where` alone is not enough.
+const NODE_CANDIDATES = process.platform === 'win32'
+  ? [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Program Files (x86)\\nodejs\\node.exe'
+    ]
+  : [
+      '/usr/local/bin/node',
+      '/opt/homebrew/bin/node',
+      '/opt/local/bin/node',
+      '/usr/bin/node'
+    ]
 
 // Ask a login shell for `node`'s path. This covers nvm/volta/asdf-style setups
 // where node only appears after the user's profile is sourced.
 function resolveNodeViaShell() {
+  if (process.platform === 'win32') return null
   for (const shell of ['bash', 'zsh', 'sh']) {
     try {
       const result = spawnSync(shell, ['-lc', 'command -v node 2>/dev/null'], { encoding: 'utf8' })
@@ -59,13 +65,19 @@ function resolveNodeCommand(scriptPath, args) {
     return { cmd: override, args: [scriptPath, ...args], env: {} }
   }
 
-  const which = spawnSync('which', ['node'], { encoding: 'utf8' })
-  if (which.status === 0 && which.stdout && which.stdout.trim()) {
-    return { cmd: which.stdout.trim(), args: [scriptPath, ...args], env: {} }
+  const isWin = process.platform === 'win32'
+  const lookup = isWin
+    ? spawnSync('where.exe', ['node'], { encoding: 'utf8' })
+    : spawnSync('which', ['node'], { encoding: 'utf8' })
+  if (lookup.status === 0 && lookup.stdout && lookup.stdout.trim()) {
+    const line = lookup.stdout.trim().split(/\r?\n/)[0].trim()
+    if (line && fs.existsSync(line)) {
+      return { cmd: line, args: [scriptPath, ...args], env: {} }
+    }
   }
 
   for (const candidate of NODE_CANDIDATES) {
-    if (fs.existsSync(candidate)) {
+    if (candidate && fs.existsSync(candidate)) {
       return { cmd: candidate, args: [scriptPath, ...args], env: {} }
     }
   }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Connections — DeepSeek Harness</title>
+  <title>Settings — DeepSeek Harness</title>
   <style>
     :root {
       --bg: #0b0f14;
@@ -76,8 +76,8 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Connections</h1>
-    <p class="sub">Run DeepSeek Harness on this Mac, or on a remote server over SSH.</p>
+    <h1>Settings</h1>
+    <p class="sub">Run DeepSeek Harness on this Mac or a remote server, and manage plugins.</p>
     <div class="status-line" id="statusLine">Backend: <b id="mode">…</b></div>
 
     <div class="section">
@@ -150,6 +150,19 @@
         </form>
         <div class="test-output" id="testOutput"></div>
       </div>
+    </div>
+
+    <div class="section">
+      <h2>插件</h2>
+      <div class="card">
+        <div class="row" style="margin-bottom:10px">
+          <input id="pkg-spec" style="flex:1" placeholder="输入插件名或 GitHub 地址，例如 dsh-file-mount" autocomplete="off" />
+          <button type="button" class="primary" id="installBtn">安装</button>
+        </div>
+        <div class="hint">自动在 npm 与 GitHub 中搜索，选择合适方式安装：npm 包优先，找不到时回退到同名 GitHub 仓库。</div>
+        <div class="test-output" id="pluginOutput"></div>
+      </div>
+      <div class="card" id="pluginList"></div>
     </div>
   </div>
 
@@ -312,6 +325,91 @@
 
     clearForm()
     renderList()
+
+    function pluginBadge(p) {
+      return p.bundle
+        ? '<span class="pill active">bundle</span>'
+        : '<span class="pill">依赖</span>'
+    }
+
+    function showPluginResult(r) {
+      const out = $('pluginOutput')
+      out.style.display = 'block'
+      if (r.ok) {
+        const lines = ['安装成功（' + r.method + '）']
+        if (r.output) lines.push(r.output.split('\n').filter(Boolean).slice(-3).join('\n'))
+        lines.push('重启软件后生效。')
+        out.textContent = lines.join('\n')
+        out.className = 'test-output ok'
+      } else {
+        let text = r.error || '安装失败'
+        if (r.suggestions && r.suggestions.length) {
+          text += '\n\n候选仓库：\n' + r.suggestions
+            .map((s) => s.fullName + (s.description ? ' — ' + s.description : ''))
+            .join('\n')
+        }
+        out.textContent = text
+        out.className = 'test-output fail'
+      }
+    }
+
+    async function renderPlugins() {
+      const data = await window.dshDesktop.plugins.list()
+      const box = $('pluginList')
+      box.innerHTML = ''
+      if (!data.installed || data.installed.length === 0) {
+        box.innerHTML = '<div class="empty">还没有安装额外插件。</div>'
+        return
+      }
+      for (const p of data.installed) {
+        const el = document.createElement('div')
+        el.className = 'card row'
+        el.innerHTML = `
+          <div class="grow">
+            <div class="name">${escapeHtml(p.name)} ${pluginBadge(p)}</div>
+            <div class="target">${escapeHtml(p.spec || '')}</div>
+          </div>
+          <button class="danger" data-remove="${escapeHtml(p.name)}">卸载</button>`
+        box.appendChild(el)
+      }
+      box.querySelectorAll('[data-remove]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const name = b.getAttribute('data-remove')
+          if (!confirm('卸载插件 "' + name + '"？')) return
+          const r = await window.dshDesktop.plugins.remove(name)
+          showPluginResult(r)
+          if (r.ok) renderPlugins()
+        })
+      })
+    }
+
+    $('installBtn').addEventListener('click', async () => {
+      const spec = $('pkg-spec').value.trim()
+      if (!spec) { alert('请输入插件名或 GitHub 地址'); return }
+      const out = $('pluginOutput')
+      out.className = 'test-output'
+      out.textContent = '正在搜索并安装…'
+      out.style.display = 'block'
+      $('installBtn').disabled = true
+      try {
+        const r = await window.dshDesktop.plugins.install(spec)
+        showPluginResult(r)
+        if (r.ok) {
+          $('pkg-spec').value = ''
+          renderPlugins()
+        }
+      } catch (err) {
+        showPluginResult({ ok: false, error: String(err && err.message ? err.message : err) })
+      } finally {
+        $('installBtn').disabled = false
+      }
+    })
+
+    $('pkg-spec').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') $('installBtn').click()
+    })
+
+    renderPlugins()
   </script>
 </body>
 </html>
