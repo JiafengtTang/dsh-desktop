@@ -61,6 +61,7 @@ public class ChatActivity extends Activity {
         String text;
         String reasoning;
         boolean live;
+        Boolean reasoningOpen;
 
         Msg(int type, String text, boolean live) {
             this(type, text, null, live);
@@ -80,7 +81,6 @@ public class ChatActivity extends Activity {
         TextView reasoningTitle;
         TextView reasoningText;
         boolean reasoningOpen = true;
-        boolean userInteracted = false;
         int lastTextHash = 0;
         int lastReasoningHash = 0;
         boolean lastLive = false;
@@ -215,92 +215,74 @@ public class ChatActivity extends Activity {
             h.lastReasoningHash = m.reasoning.hashCode();
             h.lastLive = m.live;
 
+            // 每次变化都重建该行内容，避免复用视图时折叠/展开状态串扰。
+            LinearLayout rowL = (LinearLayout) row;
+            rowL.removeAllViews();
+            rowL.setOrientation(LinearLayout.HORIZONTAL);
+            rowL.setPadding(dp(12), dp(5), dp(12), dp(5));
+
             if (m.type == TYPE_USER) {
-                if (h.userText == null) {
-                    LinearLayout rowL = (LinearLayout) row;
-                    rowL.removeAllViews();
-                    rowL.setOrientation(LinearLayout.HORIZONTAL);
-                    rowL.setGravity(Gravity.RIGHT);
-                    rowL.setPadding(dp(12), dp(5), dp(12), dp(5));
-                    TextView tv = new TextView(ChatActivity.this);
-                    tv.setTextSize(15);
-                    tv.setLineSpacing(0, 1.15f);
-                    tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-                    tv.setMaxWidth(dp(280));
-                    tv.setTextColor(Color.WHITE);
-                    tv.setBackground(rounded(Color.parseColor("#2563eb")));
-                    rowL.addView(tv);
-                    h.userText = tv;
-                    h.answerText = null;
-                    h.reasoningTitle = null;
-                    h.reasoningText = null;
-                }
-                h.userText.setText(m.text);
+                rowL.setGravity(Gravity.RIGHT);
+                TextView tv = new TextView(ChatActivity.this);
+                tv.setTextSize(15);
+                tv.setLineSpacing(0, 1.15f);
+                tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+                tv.setMaxWidth(dp(280));
+                tv.setText(m.text);
+                tv.setTextColor(Color.WHITE);
+                tv.setBackground(rounded(Color.parseColor("#2563eb")));
+                rowL.addView(tv);
+                h.answerText = null;
+                h.reasoningText = null;
                 return;
             }
 
-            if (h.answerText == null) {
-                LinearLayout rowL = (LinearLayout) row;
-                rowL.removeAllViews();
-                rowL.setOrientation(LinearLayout.HORIZONTAL);
-                rowL.setGravity(Gravity.LEFT);
-                rowL.setPadding(dp(12), dp(5), dp(12), dp(5));
-                LinearLayout bubble = new LinearLayout(ChatActivity.this);
-                bubble.setOrientation(LinearLayout.VERTICAL);
-                bubble.setBackground(rounded(Color.parseColor("#ffffff")));
-                rowL.addView(bubble, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            rowL.setGravity(Gravity.LEFT);
+            LinearLayout bubble = new LinearLayout(ChatActivity.this);
+            bubble.setOrientation(LinearLayout.VERTICAL);
+            bubble.setBackground(rounded(Color.parseColor("#ffffff")));
+            rowL.addView(bubble, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+            boolean hasReasoning = !m.reasoning.trim().isEmpty();
+            boolean open = hasReasoning && m.reasoningOpen != null && m.reasoningOpen;
+            h.reasoningOpen = open;
+            h.reasoningText = null;
+
+            if (hasReasoning) {
                 TextView title = new TextView(ChatActivity.this);
+                title.setText(open ? "💭 思考过程" : "💭 思考过程（点击展开）");
                 title.setTextSize(12);
                 title.setTextColor(Color.parseColor("#6b7280"));
                 title.setTypeface(Typeface.DEFAULT_BOLD);
                 title.setPadding(dp(14), dp(10), dp(14), dp(2));
                 title.setOnClickListener(v -> {
-                    h.userInteracted = true;
-                    h.reasoningOpen = !h.reasoningOpen;
-                    title.setText(h.reasoningOpen ? "💭 思考过程" : "💭 思考过程（点击展开）");
-                    h.reasoningText.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
+                    m.reasoningOpen = !(m.reasoningOpen != null && m.reasoningOpen);
+                    h.lastTextHash = -1;
+                    bindRow.accept(row, position);
+                    if (m.reasoningOpen) scrollReasoningBottom((RowHolder) row.getTag());
                 });
                 bubble.addView(title);
 
                 TextView rt = new TextView(ChatActivity.this);
+                rt.setText(m.reasoning);
                 rt.setTextSize(13);
                 rt.setTextColor(Color.parseColor("#6b7280"));
                 rt.setLineSpacing(0, 1.25f);
                 rt.setPadding(dp(14), dp(4), dp(14), dp(8));
+                rt.setVisibility(open ? View.VISIBLE : View.GONE);
                 bubble.addView(rt);
-
-                TextView tv = new TextView(ChatActivity.this);
-                tv.setTextSize(15);
-                tv.setLineSpacing(0, 1.15f);
-                tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-                tv.setTextColor(Color.parseColor("#111827"));
-                bubble.addView(tv);
-                h.reasoningTitle = title;
                 h.reasoningText = rt;
-                h.answerText = tv;
             }
 
-            boolean hasReasoning = !m.reasoning.trim().isEmpty();
-            if (hasReasoning) {
-                // 生成中自动展开思考过程；完成后自动收起让回答可见；
-                // 用户点击标题后可自由展开/收起，且不会被自动状态覆盖。
-                if (m.live) {
-                    h.reasoningOpen = true;
-                } else if (!h.userInteracted) {
-                    h.reasoningOpen = false;
-                }
-                h.reasoningTitle.setVisibility(View.VISIBLE);
-                h.reasoningTitle.setText(h.reasoningOpen ? "💭 思考过程" : "💭 思考过程（点击展开）");
-                h.reasoningText.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
-                h.reasoningText.setText(m.reasoning);
-            } else {
-                h.reasoningTitle.setVisibility(View.GONE);
-                h.reasoningText.setVisibility(View.GONE);
-                h.reasoningText.setText("");
-            }
-            markwon.setMarkdown(h.answerText, m.text + (m.live ? " ▍" : ""));
+            TextView tv = new TextView(ChatActivity.this);
+            tv.setTextSize(15);
+            tv.setLineSpacing(0, 1.15f);
+            tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+            markwon.setMarkdown(tv, m.text + (m.live ? " ▍" : ""));
+            tv.setTextColor(Color.parseColor("#111827"));
+            bubble.addView(tv);
+            h.answerText = tv;
         };
 
         LinearLayout inputRow = new LinearLayout(this);
@@ -534,7 +516,10 @@ public class ChatActivity extends Activity {
                     int change = mergeTail(tail);
                     if (change == 2) {
                         adapter.notifyDataSetChanged();
-                        scrollToEnd();
+                        if (listView.getCount() > 0
+                                && listView.getLastVisiblePosition() >= listView.getCount() - 3) {
+                            scrollToEnd();
+                        }
                     } else if (change == 1) {
                         refreshTail();
                     }
@@ -560,8 +545,9 @@ public class ChatActivity extends Activity {
         }
         if (j < 0) return 0;
         int oldSize = messages.size();
+        Msg removed = null;
         while (messages.size() > i + 1) {
-            messages.remove(messages.size() - 1);
+            removed = messages.remove(messages.size() - 1);
         }
         int start = 0;
         if (j >= 0 && !messages.isEmpty()
@@ -569,7 +555,14 @@ public class ChatActivity extends Activity {
             start = 1;
         }
         for (int k = start; k <= j; k++) {
-            messages.add(tail.get(k));
+            Msg add = tail.get(k);
+            // 流式更新重建了同一条消息，保留用户对该消息的展开选择。
+            if (k == j && removed != null
+                    && add.type == TYPE_ASSISTANT && removed.type == TYPE_ASSISTANT
+                    && removed.reasoningOpen != null) {
+                add.reasoningOpen = removed.reasoningOpen;
+            }
+            messages.add(add);
         }
         return messages.size() == oldSize ? 1 : 2;
     }
@@ -587,21 +580,33 @@ public class ChatActivity extends Activity {
         int first = listView.getFirstVisiblePosition();
         int last = listView.getLastVisiblePosition();
         if (pos < first || pos > last) {
-            maybeScrollToEnd();
             return;
         }
         View row = listView.getChildAt(pos - first);
         if (row != null) {
             bindRow.accept(row, pos);
+            RowHolder h = (RowHolder) row.getTag();
+            if (h != null && h.reasoningOpen && h.reasoningText != null
+                    && h.reasoningText.getVisibility() == View.VISIBLE) {
+                scrollReasoningBottom(h);
+            }
         }
-        maybeScrollToEnd();
     }
 
-    private void maybeScrollToEnd() {
-        if (listView.getCount() > 0
-                && listView.getLastVisiblePosition() >= listView.getCount() - 2) {
-            scrollToEnd();
-        }
+    // 展开思考后把列表滚到思考文本底部，让最新的思考内容可见。
+    private void scrollReasoningBottom(final RowHolder h) {
+        final TextView rt = h.reasoningText;
+        listView.post(() -> {
+            int[] rtLoc = new int[2];
+            int[] listLoc = new int[2];
+            rt.getLocationInWindow(rtLoc);
+            listView.getLocationInWindow(listLoc);
+            int rtBottomRel = (rtLoc[1] + rt.getHeight()) - listLoc[1];
+            int target = listView.getScrollY() + rtBottomRel - (listView.getHeight() - dp(16));
+            if (target > 0 && target <= listView.getScrollY() + listView.getHeight()) {
+                listView.scrollTo(0, target);
+            }
+        });
     }
 
     private String textOf(JSONObject message) {
