@@ -47,6 +47,8 @@ public class MainActivity extends Activity {
     private LinearLayout overlay;
     private TextView overlayTitle;
     private TextView overlayDetail;
+    private Button retryBtn;
+    private Button manageBtn;
     private LinearLayout homeView;
     private ListView sessionsList;
     private TextView homeEmpty;
@@ -84,6 +86,11 @@ public class MainActivity extends Activity {
         String active = store.active();
         if (active != null && !active.isEmpty()) {
             connectTo(active);
+        } else if (!store.list().isEmpty()) {
+            showOverlay("已找到 " + store.list().size() + " 台远程服务器",
+                    "请选择一台连接；服务器信息已自动预填", "idle");
+            if (retryBtn != null) retryBtn.setVisibility(View.GONE);
+            if (manageBtn != null) manageBtn.setText("选择连接");
         } else {
             showOverlay("还没有配置远程服务器", "点击下方按钮添加一个 SSH 连接", "idle");
         }
@@ -272,14 +279,14 @@ public class MainActivity extends Activity {
         brLp.setMargins(0, dp(24), 0, 0);
         overlay.addView(btnRow, brLp);
 
-        Button retryBtn = new Button(this);
+        retryBtn = new Button(this);
         retryBtn.setText("重试");
         retryBtn.setOnClickListener(v -> {
             if (currentName != null && !currentName.isEmpty()) connectTo(currentName);
         });
         btnRow.addView(retryBtn);
 
-        Button manageBtn = new Button(this);
+        manageBtn = new Button(this);
         manageBtn.setText("连接管理");
         manageBtn.setOnClickListener(v -> openConnections());
         LinearLayout.LayoutParams mbLp = new LinearLayout.LayoutParams(
