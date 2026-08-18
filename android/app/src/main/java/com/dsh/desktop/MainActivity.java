@@ -428,7 +428,15 @@ public class MainActivity extends Activity {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 lp.setMargins(dp(10), dp(4), dp(10), dp(4));
                 row.setLayoutParams(lp);
-                row.setOnClickListener(v -> openChat(s.optString("sessionId"), titleOf(s), s.optString("cwd", "")));
+                final String sid = s.optString("sessionId");
+                final String stitle = titleOf(s);
+                row.setOnClickListener(v -> {
+                    Intent i = new Intent(MainActivity.this, ChatActivity.class);
+                    i.putExtra("baseUrl", currentUrl);
+                    i.putExtra("sessionId", sid);
+                    i.putExtra("title", stitle);
+                    startActivity(i);
+                });
                 return row;
             }
         });

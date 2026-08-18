@@ -26,5 +26,9 @@
         <activity
             android:name=".ConnectionsActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ChatActivity"
+            android:exported="false" />
     </application>
 </manifest>
