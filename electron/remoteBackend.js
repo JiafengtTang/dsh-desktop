@@ -133,13 +133,17 @@ function remoteDshCommand(p, localDshHome) {
   // detached (setsid + nohup) so it survives SSH disconnects. This makes the
   // phone and the desktop share the SAME dsh process, so live session events
   // (streamed replies, queue state, progress) propagate between devices.
-  const probe = 'if curl -s -o /dev/null --max-time 2 http://127.0.0.1:' + port + '/; then echo "dsh web: ready"; exit 0; fi'
+  // After the remote is ready, KEEP THE SSH SESSION OPEN (idle loop) so the
+  // local -L forward stays alive for the desktop window. The detached dsh
+  // process itself is independent and survives even if this SSH later closes.
+  const keepAlive = 'while true; do sleep 3600; done'
+  const probe = 'if curl -s -o /dev/null --max-time 2 http://127.0.0.1:' + port + '/; then echo "dsh web: ready"; ' + keepAlive + '; fi'
   const start = 'cd ' + cdArg(projectDir) + ' && ' +
     '(setsid nohup ' + env + p.dshCommand + ' web --port ' + port +
     ' > ' + log + ' 2>&1 </dev/null &)'
   const wait = 'for i in $(seq 1 90); do ' +
     'if curl -s -o /dev/null http://127.0.0.1:' + port + '/; then ' +
-    'echo "dsh web: ready"; exit 0; fi; sleep 1; done; ' +
+    'echo "dsh web: ready"; ' + keepAlive + '; fi; sleep 1; done; ' +
     'echo "dsh web: timeout after 90s"; exit 1'
   const inner = probe + '; ' + start + '; ' + wait
   return p.remoteShell + ' -lc ' + shellQuote(inner)
