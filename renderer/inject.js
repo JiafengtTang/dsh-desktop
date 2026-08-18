@@ -679,10 +679,15 @@
           window.dshDesktop.dsh.onUpdateProgress((p) => updateBannerProgress(p))
         }
       }
+      const curText = info.localAuto
+        ? '本地已自动使用最新版'
+        : (info.local ? '本地 v' + info.local : '固定版本')
+      const pinnedText = (info.pinned && info.pinned.length)
+        ? '有 ' + info.pinned.length + ' 个远程连接仍在使用旧版 dsh。'
+        : ''
       document.getElementById('dshd-update-msg').textContent =
-        '当前 ' + (info.local ? 'v' + info.local : '固定版本') +
-        '，最新版本 v' + info.latest +
-        '。更新会重启 dsh（进行中的对话会中断，记录保留）。'
+        curText + '，最新版本 v' + info.latest + '。' + pinnedText +
+        '更新会重启 dsh（进行中的对话会中断，记录保留）。'
       banner.classList.add('show')
     }).catch(() => {})
   }

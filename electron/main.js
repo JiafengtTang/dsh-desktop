@@ -472,15 +472,16 @@ function main() {
   ipcMain.handle('dsh:checkUpdate', () => {
     const latest = latestDshVersion()
     const local = localDshVersion()
-    const remoteNames = connections.list().map((c) => c.name)
+    const localCommand = (settings.get('dshCommand', '') || '').trim()
+    const localAuto = localCommand === '' || /@deepseek-ai\/dsh@latest/.test(localCommand)
     const pinned = connections.list().filter((c) => !usesLatestCommand(c)).map((c) => c.name)
     return {
       ok: true,
       latest,
-      local,
+      local: localAuto ? null : local,
+      localAuto,
       pinned,
-      remoteNames,
-      needsUpdate: Boolean(latest) && (pinned.length > 0 || (local && local !== latest))
+      needsUpdate: Boolean(latest) && pinned.length > 0
     }
   })
 

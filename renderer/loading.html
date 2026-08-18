@@ -83,13 +83,13 @@
     </div>
     <h1>DeepSeek Harness</h1>
     <div class="spinner" id="spinner"></div>
-    <p class="status" id="status">Starting the backend…</p>
+    <p class="status" id="status">正在启动…（首次会自动下载最新版 dsh，可能需要几分钟）</p>
     <div class="actions hidden" id="actions">
-      <button id="retry">Retry</button>
-      <button id="logs" class="primary">Open Logs</button>
+      <button id="retry">重试</button>
+      <button id="logs" class="primary">打开日志</button>
     </div>
     <div class="footer">
-      <button id="connections" class="ghost">Connections…</button>
+      <button id="connections" class="ghost">连接管理…</button>
     </div>
   </div>
 
@@ -108,18 +108,18 @@
       window.dshDesktop.onStatus((status) => {
         if (!status) return
         if (status.state === 'starting') {
-          setStatus('Starting · ' + (status.mode || 'Local') + '…')
+          setStatus('正在启动 · ' + (status.mode || '本机') + '…（首次会自动下载最新版 dsh，可能需要几分钟）')
         } else if (status.state === 'ready') {
-          setStatus('Connected · ' + status.url)
+          setStatus('已连接 · ' + status.url)
         } else if (status.state === 'error') {
-          setStatus((status.mode ? status.mode + ': ' : '') + (status.message || 'unknown'), { error: true })
+          setStatus((status.mode ? status.mode + '：' : '') + (status.message || '未知错误'), { error: true })
         } else if (status.state === 'exited') {
-          setStatus('Backend stopped unexpectedly. Retrying…', { error: true })
+          setStatus('后端意外停止，正在重试…', { error: true })
         }
       })
 
       document.getElementById('retry').addEventListener('click', () => {
-        setStatus('Restarting the backend…')
+        setStatus('正在重启后端…')
         window.dshDesktop.restart()
       })
       document.getElementById('logs').addEventListener('click', async () => {
