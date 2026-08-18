@@ -1,0 +1,258 @@
+package com.dsh.desktop;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class ConnectionsActivity extends Activity {
+    private ConnectionStore store;
+    private List<JSONObject> connections = new ArrayList<>();
+    private ListView listView;
+    private BaseAdapter adapter;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        store = new ConnectionStore(this);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#0b0f14"));
+
+        TextView header = new TextView(this);
+        header.setText("远程连接");
+        header.setTextColor(Color.parseColor("#e8eefb"));
+        header.setTextSize(20);
+        header.setTypeface(Typeface.DEFAULT_BOLD);
+        header.setPadding(dp(18), dp(24), dp(18), dp(12));
+        root.addView(header, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        listView = new ListView(this);
+        listView.setDivider(null);
+        root.addView(listView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        Button addBtn = new Button(this);
+        addBtn.setText("＋ 添加远程服务器");
+        addBtn.setTextSize(15);
+        addBtn.setAllCaps(false);
+        addBtn.setOnClickListener(v -> editDialog(null));
+        root.addView(addBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        setContentView(root);
+        reload();
+    }
+
+    private void reload() {
+        connections = store.list();
+        adapter = new BaseAdapter() {
+            @Override
+            public int getCount() {
+                return connections.size();
+            }
+
+            @Override
+            public Object getItem(int position) {
+                return connections.get(position);
+            }
+
+            @Override
+            public long getItemId(int position) {
+                return position;
+            }
+
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                JSONObject c = connections.get(position);
+                LinearLayout row = new LinearLayout(ConnectionsActivity.this);
+                row.setOrientation(LinearLayout.VERTICAL);
+                row.setPadding(dp(18), dp(12), dp(12), dp(12));
+                row.setBackgroundColor(Color.parseColor("#121823"));
+
+                TextView name = new TextView(ConnectionsActivity.this);
+                name.setText(c.optString("name", ""));
+                name.setTextColor(Color.parseColor("#e8eefb"));
+                name.setTextSize(16);
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+                row.addView(name);
+
+                TextView sub = new TextView(ConnectionsActivity.this);
+                String target = c.optString("user", "") + "@" + c.optString("host", "");
+                sub.setText(target + "  ·  " + c.optString("projectDir", "~"));
+                sub.setTextColor(Color.parseColor("#8b98b3"));
+                sub.setTextSize(12);
+                row.addView(sub);
+
+                LinearLayout btnRow = new LinearLayout(ConnectionsActivity.this);
+                btnRow.setOrientation(LinearLayout.HORIZONTAL);
+                btnRow.setGravity(Gravity.RIGHT);
+                row.addView(btnRow);
+
+                Button connect = smallButton("连接");
+                connect.setOnClickListener(v -> {
+                    store.setActive(c.optString("name"));
+                    setResult(RESULT_OK);
+                    finish();
+                });
+                btnRow.addView(connect);
+
+                Button edit = smallButton("编辑");
+                edit.setOnClickListener(v -> editDialog(c));
+                btnRow.addView(edit);
+
+                Button del = smallButton("删除");
+                del.setTextColor(Color.parseColor("#ff8b8b"));
+                del.setOnClickListener(v -> {
+                    store.remove(c.optString("name"));
+                    reload();
+                });
+                btnRow.addView(del);
+
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMargins(dp(8), dp(6), dp(8), 0);
+                row.setLayoutParams(lp);
+                return row;
+            }
+        };
+        listView.setAdapter(adapter);
+    }
+
+    private Button smallButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(12);
+        b.setAllCaps(false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(4), dp(8), 0, 0);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private void editDialog(JSONObject existing) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(8), dp(4), dp(8), 0);
+
+        EditText name = field(form, "名称 *");
+        EditText host = field(form, "主机 / IP *");
+        EditText user = field(form, "用户名 *");
+        EditText port = field(form, "端口（默认 22）");
+        EditText password = field(form, "密码（可选）");
+        EditText keyContent = field(form, "私钥内容（可选，粘贴 PEM）");
+        keyContent.setLines(4);
+        EditText projectDir = field(form, "远程项目目录（默认 ~）");
+        EditText remotePort = field(form, "远程 dsh 端口（0 = 自动）");
+        EditText shell = field(form, "远程 shell（默认 bash）");
+        EditText dshCommand = field(form, "远程 dsh 命令");
+        scroll.addView(form);
+
+        if (existing != null) {
+            name.setText(existing.optString("name"));
+            host.setText(existing.optString("host"));
+            user.setText(existing.optString("user"));
+            port.setText(String.valueOf(existing.optInt("port", 22)));
+            password.setText(existing.optString("password"));
+            keyContent.setText(existing.optString("keyContent"));
+            projectDir.setText(existing.optString("projectDir"));
+            remotePort.setText(String.valueOf(existing.optInt("remotePort", 0)));
+            shell.setText(existing.optString("shell", "bash"));
+            dshCommand.setText(existing.optString("dshCommand"));
+        } else {
+            port.setText("22");
+            remotePort.setText("0");
+            shell.setText("bash");
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(existing == null ? "添加连接" : "编辑连接")
+                .setView(scroll)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String nm = name.getText().toString().trim();
+                    String hs = host.getText().toString().trim();
+                    String us = user.getText().toString().trim();
+                    if (nm.isEmpty() || hs.isEmpty() || us.isEmpty()) {
+                        new AlertDialog.Builder(this)
+                                .setMessage("名称、主机、用户名不能为空")
+                                .setPositiveButton("好", null)
+                                .show();
+                        return;
+                    }
+                    JSONObject c = new JSONObject();
+                    try {
+                        c.put("name", nm);
+                        c.put("host", hs);
+                        c.put("user", us);
+                        c.put("port", parseInt(port.getText().toString(), 22));
+                        c.put("password", password.getText().toString());
+                        c.put("keyContent", keyContent.getText().toString());
+                        c.put("projectDir", projectDir.getText().toString().trim());
+                        c.put("remotePort", parseInt(remotePort.getText().toString(), 0));
+                        String sh = shell.getText().toString().trim();
+                        c.put("shell", sh.isEmpty() ? "bash" : sh);
+                        c.put("dshCommand", dshCommand.getText().toString().trim());
+                    } catch (Exception ignored) {
+                    }
+                    if (existing == null) {
+                        store.add(c);
+                    } else {
+                        store.update(existing.optString("name"), c);
+                    }
+                    reload();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private EditText field(LinearLayout form, String label) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextColor(Color.parseColor("#8b98b3"));
+        tv.setTextSize(12);
+        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tLp.setMargins(0, dp(10), 0, dp(2));
+        form.addView(tv, tLp);
+
+        EditText et = new EditText(this);
+        et.setTextColor(Color.parseColor("#e8eefb"));
+        et.setHintTextColor(Color.parseColor("#5b6478"));
+        et.setTextSize(14);
+        form.addView(et, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return et;
+    }
+
+    private static int parseInt(String s, int def) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+}

@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.dsh.desktop'
+    compileSdk 37
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'com.dsh.desktop'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.2.3'
+    }
+
+    signingConfigs {
+        release {
+            storeFile rootProject.file('keystore/dsh-desktop.keystore')
+            storePassword 'dshdesktop'
+            keyAlias 'dsh-desktop'
+            keyPassword 'dshdesktop'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.github.mwiede:jsch:0.2.20'
+}

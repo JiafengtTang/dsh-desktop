@@ -1,0 +1,158 @@
+package com.dsh.desktop;
+
+import com.jcraft.jsch.ChannelExec;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
+
+import org.json.JSONObject;
+
+import java.io.InputStream;
+import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
+import java.util.Properties;
+
+public class SshManager {
+    public interface Listener {
+        void onOutput(String line, boolean error);
+
+        void onReady(String url);
+
+        void onError(String message);
+    }
+
+    private Session session;
+    private ChannelExec channel;
+    private Thread reader;
+    private volatile boolean stopping = false;
+    private final Object lock = new Object();
+
+    public boolean isConnected() {
+        synchronized (lock) {
+            return session != null && session.isConnected();
+        }
+    }
+
+    public void connect(JSONObject profile, Listener listener) {
+        disconnect();
+        new Thread(() -> {
+            try {
+                String host = profile.optString("host", "").trim();
+                String user = profile.optString("user", "").trim();
+                int port = profile.optInt("port", 22);
+                String password = profile.optString("password", "");
+                String keyContent = profile.optString("keyContent", "");
+                String projectDir = profile.optString("projectDir", "").trim();
+                int remotePort = profile.optInt("remotePort", 0);
+                String shell = profile.optString("shell", "bash");
+                String dshCommand = profile.optString("dshCommand", "").trim();
+
+                if (host.isEmpty() || user.isEmpty()) {
+                    if (listener != null) listener.onError("主机和用户名不能为空");
+                    return;
+                }
+                if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@0.1.0-rc.6";
+                if (remotePort <= 0) remotePort = 30000 + (int) (Math.random() * 20000);
+                if (projectDir.isEmpty()) projectDir = "~";
+
+                JSch jsch = new JSch();
+                if (!keyContent.isEmpty()) {
+                    jsch.addIdentity("dsh-key", keyContent.getBytes(StandardCharsets.UTF_8), null, null);
+                }
+
+                Session s = jsch.getSession(user, host, port);
+                if (!password.isEmpty()) s.setPassword(password);
+                Properties cfg = new Properties();
+                cfg.put("StrictHostKeyChecking", "no");
+                cfg.put("PreferredAuthentications", "publickey,password,keyboard-interactive");
+                s.setConfig(cfg);
+                s.setServerAliveInterval(15000);
+                s.setServerAliveCountMax(3);
+                s.connect(20000);
+                synchronized (lock) {
+                    session = s;
+                }
+
+                int localPort = findFreePort();
+                s.setPortForwardingL(localPort, "127.0.0.1", remotePort);
+                final String url = "http://127.0.0.1:" + localPort;
+
+                String cdPath;
+                if (projectDir.equals("~")) {
+                    cdPath = "\"$HOME\"";
+                } else if (projectDir.startsWith("~/")) {
+                    cdPath = "\"$HOME\"/" + quote(projectDir.substring(2));
+                } else {
+                    cdPath = quote(projectDir);
+                }
+                String inner = "cd " + cdPath + " && " + dshCommand + " web --port " + remotePort;
+                String command = shell + " -lc " + quote(inner);
+                ChannelExec exec = (ChannelExec) s.openChannel("exec");
+                exec.setCommand(command);
+                exec.setPty(true);
+                InputStream in = exec.getInputStream();
+                exec.connect(20000);
+                synchronized (lock) {
+                    channel = exec;
+                }
+
+                stopping = false;
+                reader = new Thread(() -> {
+                    try {
+                        byte[] buf = new byte[4096];
+                        StringBuilder pending = new StringBuilder();
+                        int n;
+                        while (!stopping && (n = in.read(buf)) > 0) {
+                            pending.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+                            int idx;
+                            while ((idx = pending.indexOf("\n")) >= 0) {
+                                String line = pending.substring(0, idx).trim();
+                                pending.delete(0, idx + 1);
+                                if (line.isEmpty()) continue;
+                                if (listener != null) listener.onOutput(line, false);
+                                if (line.contains("dsh web:")) {
+                                    if (listener != null) listener.onReady(url);
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }, "ssh-reader");
+                reader.start();
+            } catch (Exception e) {
+                if (listener != null) {
+                    listener.onError(e.getMessage() == null ? String.valueOf(e) : e.getMessage());
+                }
+            }
+        }, "ssh-connect").start();
+    }
+
+    public void disconnect() {
+        stopping = true;
+        try {
+            if (reader != null) reader.interrupt();
+        } catch (Exception ignored) {
+        }
+        synchronized (lock) {
+            try {
+                if (channel != null) channel.disconnect();
+            } catch (Exception ignored) {
+            }
+            channel = null;
+            try {
+                if (session != null) session.disconnect();
+            } catch (Exception ignored) {
+            }
+            session = null;
+        }
+    }
+
+    private static int findFreePort() throws Exception {
+        try (ServerSocket ss = new ServerSocket(0)) {
+            return ss.getLocalPort();
+        }
+    }
+
+    private static String quote(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
+    }
+}
