@@ -166,6 +166,7 @@ public class ConnectionsActivity extends Activity {
         EditText remotePort = field(form, "远程 dsh 端口（0 = 自动）");
         EditText shell = field(form, "远程 shell（默认 bash）");
         EditText dshCommand = field(form, "远程 dsh 命令");
+        EditText url = field(form, "直连地址（可选，跳过 SSH 直接打开 dsh 网页）");
         scroll.addView(form);
 
         if (existing != null) {
@@ -179,6 +180,7 @@ public class ConnectionsActivity extends Activity {
             remotePort.setText(String.valueOf(existing.optInt("remotePort", 0)));
             shell.setText(existing.optString("shell", "bash"));
             dshCommand.setText(existing.optString("dshCommand"));
+            url.setText(existing.optString("url"));
         } else {
             port.setText("22");
             remotePort.setText("0");
@@ -212,6 +214,7 @@ public class ConnectionsActivity extends Activity {
                         String sh = shell.getText().toString().trim();
                         c.put("shell", sh.isEmpty() ? "bash" : sh);
                         c.put("dshCommand", dshCommand.getText().toString().trim());
+                        c.put("url", url.getText().toString().trim());
                     } catch (Exception ignored) {
                     }
                     if (existing == null) {

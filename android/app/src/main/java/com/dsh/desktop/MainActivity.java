@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.util.Log;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -51,6 +52,20 @@ public class MainActivity extends Activity {
         injectJs = readAsset("inject.js");
         buildUi();
 
+        // Debug-only: if no connections are configured, point at the local dsh
+        // server (host loopback from the emulator) so the UI can be verified.
+        boolean isDebug = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (isDebug && store.list().isEmpty()) {
+            JSONObject t = new JSONObject();
+            try {
+                t.put("name", "local-test");
+                t.put("url", "http://10.0.2.2:43990");
+                store.add(t);
+                store.setActive("local-test");
+            } catch (Exception ignored) {
+            }
+        }
+
         String active = store.active();
         if (active != null && !active.isEmpty()) {
             connectTo(active);
@@ -97,6 +112,7 @@ public class MainActivity extends Activity {
         statusBar.addView(connBtn);
 
         webView = new WebView(this);
+        WebView.setWebContentsDebuggingEnabled(true);
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
@@ -106,24 +122,39 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                Log.i("DSH", "page start: " + url);
                 showOverlay("正在加载界面…", "", "starting");
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                Log.i("DSH", "page finished: " + url);
                 setStatus("ready");
                 hideOverlay();
                 if (injectJs != null && !injectJs.isEmpty()) {
                     view.evaluateJavascript(injectJs, null);
                 }
+                view.evaluateJavascript(
+                    "try{var s=function(el,d){if(d<=0)return '';return [].map.call(el.children,function(c){var cls=String(c.className||'').replace(/\\s+/g,' ').trim();var t=(c.textContent||'').trim().slice(0,10);return c.tagName.toLowerCase()+(cls?'.'+cls:'')+(t?'['+t+']':'')+(c.children.length?'{'+s(c,d-1)+'}':'')}).slice(0,10).join(' | ')};var co=document.body.children[1].querySelector('[class*=\"composerStack\"]');console.log('COMP:'+s(co,3));var msgEls=document.querySelectorAll('[class*=\"Message\"],[class*=\"message\"],[role=\"user\"],[role=\"assistant\"]');console.log('MSGCNT:'+msgEls.length)}catch(e){console.log('domerr:'+e.message)}",
+                    null);
+                view.postDelayed(() -> view.evaluateJavascript(
+                    "try{var s=function(el,d){if(d<=0)return '';return [].map.call(el.children,function(c){var cls=String(c.className||'').replace(/\\s+/g,' ').trim();var t=(c.textContent||'').trim().slice(0,10);return c.tagName.toLowerCase()+(cls?'.'+cls:'')+(t?'['+t+']':'')+(c.children.length?'{'+s(c,d-1)+'}':'')}).slice(0,10).join(' | ')};var co=document.body.children[1].querySelector('[class*=\"composerStack\"]');console.log('COMP2:'+s(co,3));var msgEls=document.querySelectorAll('[class*=\"Message\"],[class*=\"message\"],[role=\"user\"],[role=\"assistant\"]');console.log('MSGCNT2:'+msgEls.length)}catch(e){console.log('domerr2:'+e.message)}",
+                    null), 5000);
             }
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                Log.e("DSH", "page error " + errorCode + ": " + description + " @ " + failingUrl);
                 showOverlay("加载失败", description, "error");
             }
         });
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage msg) {
+                Log.i("DSH", "web: " + msg.message());
+                return true;
+            }
+        });
         column.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -194,6 +225,13 @@ public class MainActivity extends Activity {
             return;
         }
         currentUrl = null;
+        String directUrl = profile.optString("url", "").trim();
+        if (!directUrl.isEmpty() && profile.optString("host", "").isEmpty()) {
+            currentUrl = directUrl;
+            showOverlay("正在加载 " + currentName + " …", "", "starting");
+            webView.loadUrl(directUrl);
+            return;
+        }
         showOverlay("正在连接 " + currentName + " …", "正在建立 SSH 隧道", "starting");
         setStatus("starting");
         ssh.connect(profile, new SshManager.Listener() {
