@@ -2,6 +2,7 @@ package com.dsh.desktop;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -23,6 +24,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ConnectionsActivity extends Activity {
+    private static final int REQ_IMPORT = 2001;
+
     private ConnectionStore store;
     private List<JSONObject> connections = new ArrayList<>();
     private ListView listView;
@@ -59,6 +62,23 @@ public class ConnectionsActivity extends Activity {
         abLp.setMargins(dp(14), 0, dp(14), dp(12));
         root.addView(addBtn, abLp);
 
+        Button importBtn = new Button(this);
+        importBtn.setText("导入服务器配置…");
+        importBtn.setTextSize(13);
+        importBtn.setAllCaps(false);
+        importBtn.setTextColor(Color.parseColor("#2563eb"));
+        importBtn.setBackground(rounded(Color.parseColor("#e8efff")));
+        importBtn.setOnClickListener(v -> {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            startActivityForResult(i, REQ_IMPORT);
+        });
+        LinearLayout.LayoutParams ibLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ibLp.setMargins(dp(14), 0, dp(14), dp(12));
+        root.addView(importBtn, ibLp);
+
         listView = new ListView(this);
         listView.setDivider(null);
         listView.setBackgroundColor(Color.parseColor("#f7f8fa"));
@@ -71,6 +91,18 @@ public class ConnectionsActivity extends Activity {
 
         setContentView(root);
         reload();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_IMPORT && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            int n = store.importFromUri(this, data.getData());
+            android.widget.Toast.makeText(this,
+                    n < 0 ? "导入失败：文件格式不正确" : "已导入 " + n + " 个服务器",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            reload();
+        }
     }
 
     private GradientDrawable rounded(int color) {

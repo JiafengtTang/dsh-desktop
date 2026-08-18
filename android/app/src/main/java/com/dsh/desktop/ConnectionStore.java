@@ -2,6 +2,7 @@ package com.dsh.desktop;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.Uri;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -126,5 +127,32 @@ public class ConnectionStore {
 
     public void setActive(String name) {
         prefs.edit().putString(KEY_ACTIVE, name == null ? "" : name).apply();
+    }
+
+    // Import connections from a JSON file the user picked (SAF Uri). Returns the
+    // number added, or -1 on failure. The file is read once and never written to
+    // the repo — it stays device-local.
+    public int importFromUri(Context context, Uri uri) {
+        try {
+            InputStream in = context.getContentResolver().openInputStream(uri);
+            String json = new String(readAll(in), StandardCharsets.UTF_8);
+            in.close();
+            JSONArray arr = new JSONArray(json);
+            int added = 0;
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String name = o.optString("name", "").trim();
+                String host = o.optString("host", "").trim();
+                if (name.isEmpty() || host.isEmpty()) continue;
+                if (get(name) == null) {
+                    add(o);
+                    added++;
+                }
+            }
+            return added;
+        } catch (Exception e) {
+            return -1;
+        }
     }
 }
