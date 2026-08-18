@@ -19,7 +19,6 @@ const SSH_OPTIONS = [
   '-o', 'ConnectTimeout=15',
   '-o', 'ServerAliveInterval=15',
   '-o', 'ServerAliveCountMax=3',
-  '-o', 'ExitOnForwardFailure=yes',
   '-o', 'BatchMode=yes'
 ]
 
@@ -411,6 +410,56 @@ function testRemoteConnection(profile) {
   })
 }
 
+// Stop the resident remote dsh that listens on the profile's fixed port. The
+// desktop then restarts its backend, whose probe sees a free port and launches
+// a fresh dsh (plugins are reloaded; if the dshCommand version changed, the new
+// version is fetched). Kill only the process listening on that port so the SSH
+// transport itself is never affected.
+function restartRemoteDsh(profile) {
+  return new Promise((resolve) => {
+    const p = normalizeProfile(profile)
+    const target = sshTarget(p)
+    if (!target) return resolve({ ok: false, output: '缺少主机或 SSH 别名' })
+    const port = p.remotePort
+    if (!port) return resolve({ ok: false, output: '该连接没有固定远程端口，无法重启' })
+
+    const inner = [
+      '(lsof -ti tcp:' + port + ' -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null); ' +
+        '(fuser -k ' + port + '/tcp 2>/dev/null); true',
+      'for i in $(seq 1 30); do ' +
+        'if ! curl -s -o /dev/null --max-time 1 http://127.0.0.1:' + port + '/; then ' +
+        'echo __DSH_STOPPED__; exit 0; fi; sleep 1; done',
+      'echo __DSH_STILL_UP__; exit 1'
+    ].join(' && ')
+    const remote = p.remoteShell + ' -lc ' + shellQuote(inner)
+    const args = [...baseSshArgs(p, null), target, remote]
+
+    const child = spawn(resolveSsh(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = ''
+    let settled = false
+    const finish = (ok) => {
+      if (settled) return
+      settled = true
+      resolve({ ok, output: output.trim() })
+    }
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL') } catch {}
+      finish(false)
+    }, 45000)
+    child.stdout.on('data', (c) => { output += c.toString() })
+    child.stderr.on('data', (c) => { output += c.toString() })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      finish(false)
+      output += (output ? '\n' : '') + String(err.message || err)
+    })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      finish(code === 0 && output.includes('__DSH_STOPPED__'))
+    })
+  })
+}
+
 // List the immediate subdirectories of a remote path over SSH. Returns the
 // resolved working directory plus a sorted list of child directory names.
 function listRemoteDirectory(profile, dir) {
@@ -516,4 +565,4 @@ async function listWorkspaces(baseUrl, timeoutMs = 4000) {
   }
 }
 
-module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, normalizeProfile, sshTarget, findFreePort, randomHighPort, stableRemotePort }
+module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, restartRemoteDsh, normalizeProfile, sshTarget, findFreePort, randomHighPort, stableRemotePort }

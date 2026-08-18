@@ -20,7 +20,8 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     test: (profile) => ipcRenderer.invoke('connections:test', profile),
     syncPlugins: (profile) => ipcRenderer.invoke('connections:syncPlugins', profile),
     browse: (profile, dir) => ipcRenderer.invoke('connections:browse', profile, dir),
-    setWorkspace: (path) => ipcRenderer.invoke('connections:setWorkspace', path)
+    setWorkspace: (path) => ipcRenderer.invoke('connections:setWorkspace', path),
+    restartRemote: (name) => ipcRenderer.invoke('connections:restartRemote', name)
   },
   plugins: {
     list: () => ipcRenderer.invoke('plugins:list'),

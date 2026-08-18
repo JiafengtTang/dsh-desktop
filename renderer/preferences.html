@@ -247,6 +247,7 @@
           </div>
           <button data-activate="${escapeHtml(c.name)}">Use</button>
           <button data-edit="${escapeHtml(c.name)}">Edit</button>
+          <button data-restart="${escapeHtml(c.name)}" title="停止远程 dsh 并按配置重启（重新加载插件；如需升级 dsh 版本，先在编辑里修改版本号）">重启 dsh</button>
           <button class="danger" data-delete="${escapeHtml(c.name)}">Delete</button>`
         box.appendChild(el)
       }
@@ -277,6 +278,20 @@
             if (!r.ok) alert(r.error)
             else renderList()
           }
+        })
+      })
+      box.querySelectorAll('[data-restart]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const name = b.getAttribute('data-restart')
+          if (!confirm('重启远程 dsh 会重新加载插件，进行中的对话会中断（记录保留）。继续？')) return
+          b.disabled = true
+          const original = b.textContent
+          b.textContent = '重启中…'
+          const r = await window.dshDesktop.connections.restartRemote(name)
+          b.disabled = false
+          b.textContent = original
+          alert(r.ok ? '远程 dsh 已重启，正在重新连接…' : ('重启失败：' + (r.error || '未知错误')))
+          renderList()
         })
       })
     }

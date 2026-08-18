@@ -7,7 +7,7 @@ const fs = require('node:fs')
 
 const { Settings } = require('./settings')
 const { DshBackend } = require('./backend')
-const { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins } = require('./remoteBackend')
+const { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, restartRemoteDsh } = require('./remoteBackend')
 const { ConnectionStore } = require('./connections')
 const { buildMenu } = require('./menu')
 const { createTray } = require('./tray')
@@ -409,6 +409,18 @@ function main() {
     if (!backend || !backend.url) return { ok: false, error: '尚未连接' }
     try {
       return await ensureWorkspace(backend.url, path)
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) }
+    }
+  })
+  ipcMain.handle('connections:restartRemote', async (_event, name) => {
+    const profile = connections.get(name)
+    if (!profile) return { ok: false, error: '未找到该连接' }
+    try {
+      const result = await restartRemoteDsh(profile)
+      if (!result.ok) return { ok: false, error: result.output || '远程 dsh 未能停止' }
+      if (name === connectionKey()) restartBackend()
+      return { ok: true, output: result.output }
     } catch (err) {
       return { ok: false, error: String(err.message || err) }
     }
