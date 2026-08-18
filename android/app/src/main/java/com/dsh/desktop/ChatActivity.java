@@ -52,19 +52,37 @@ public class ChatActivity extends Activity {
     private volatile boolean pollActive = false;
     private Thread poller;
     private Markwon markwon;
+    private java.util.function.BiConsumer<View, Integer> bindRow;
     private volatile int loadRetries = 0;
     private volatile int tailFailures = 0;
 
     private static class Msg {
         int type;
         String text;
+        String reasoning;
         boolean live;
 
         Msg(int type, String text, boolean live) {
+            this(type, text, null, live);
+        }
+
+        Msg(int type, String text, String reasoning, boolean live) {
             this.type = type;
-            this.text = text;
+            this.text = text == null ? "" : text;
+            this.reasoning = reasoning == null ? "" : reasoning;
             this.live = live;
         }
+    }
+
+    private static class RowHolder {
+        TextView userText;
+        TextView answerText;
+        TextView reasoningTitle;
+        TextView reasoningText;
+        android.widget.ScrollView reasoningScroll;
+        boolean reasoningOpen = true;
+        int lastTextHash = 0;
+        int lastReasoningHash = 0;
     }
 
     @Override
@@ -155,35 +173,125 @@ public class ChatActivity extends Activity {
 
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
-                Msg m = messages.get(position);
-                TextView tv = new TextView(ChatActivity.this);
-                tv.setTextSize(15);
-                tv.setLineSpacing(0, 1.15f);
-                tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-                if (m.type == TYPE_USER) {
-                    tv.setMaxWidth(dp(280));
-                    tv.setText(m.text);
-                    tv.setTextColor(Color.WHITE);
-                    tv.setBackground(rounded(Color.parseColor("#2563eb")));
+                View row = convertView;
+                RowHolder h = null;
+                if (row != null && row.getTag() instanceof RowHolder) {
+                    h = (RowHolder) row.getTag();
                 } else {
-                    markwon.setMarkdown(tv, m.text + (m.live ? " ▍" : ""));
-                    tv.setTextColor(Color.parseColor("#111827"));
-                    tv.setBackground(rounded(Color.parseColor("#ffffff")));
+                    row = new LinearLayout(ChatActivity.this);
+                    h = new RowHolder();
+                    row.setTag(h);
                 }
-                LinearLayout row = new LinearLayout(ChatActivity.this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(m.type == TYPE_USER ? Gravity.RIGHT : Gravity.LEFT);
-                row.setPadding(dp(12), dp(5), dp(12), dp(5));
-                if (m.type == TYPE_USER) {
-                    row.addView(tv);
-                } else {
-                    row.addView(tv, new LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                }
+                bindRow.accept(row, position);
                 return row;
             }
         };
         listView.setAdapter(adapter);
+
+        // 复用行视图，只更新变化的文本，避免全量重建导致的闪烁。
+        // Reuse row views and update only the changed text so streaming
+        // refreshes do not rebuild the whole list (no flicker).
+        bindRow = (row, position) -> {
+            Msg m = messages.get(position);
+            RowHolder h = (RowHolder) row.getTag();
+            if (h.lastTextHash == m.text.hashCode()
+                    && h.lastReasoningHash == m.reasoning.hashCode()) {
+                return;
+            }
+            h.lastTextHash = m.text.hashCode();
+            h.lastReasoningHash = m.reasoning.hashCode();
+
+            if (m.type == TYPE_USER) {
+                if (h.userText == null) {
+                    LinearLayout rowL = (LinearLayout) row;
+                    rowL.removeAllViews();
+                    rowL.setOrientation(LinearLayout.HORIZONTAL);
+                    rowL.setGravity(Gravity.RIGHT);
+                    rowL.setPadding(dp(12), dp(5), dp(12), dp(5));
+                    TextView tv = new TextView(ChatActivity.this);
+                    tv.setTextSize(15);
+                    tv.setLineSpacing(0, 1.15f);
+                    tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+                    tv.setMaxWidth(dp(280));
+                    tv.setTextColor(Color.WHITE);
+                    tv.setBackground(rounded(Color.parseColor("#2563eb")));
+                    rowL.addView(tv);
+                    h.userText = tv;
+                    h.answerText = null;
+                    h.reasoningTitle = null;
+                    h.reasoningText = null;
+                }
+                h.userText.setText(m.text);
+                return;
+            }
+
+            if (h.answerText == null) {
+                LinearLayout rowL = (LinearLayout) row;
+                rowL.removeAllViews();
+                rowL.setOrientation(LinearLayout.HORIZONTAL);
+                rowL.setGravity(Gravity.LEFT);
+                rowL.setPadding(dp(12), dp(5), dp(12), dp(5));
+                LinearLayout bubble = new LinearLayout(ChatActivity.this);
+                bubble.setOrientation(LinearLayout.VERTICAL);
+                bubble.setBackground(rounded(Color.parseColor("#ffffff")));
+                rowL.addView(bubble, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                TextView title = new TextView(ChatActivity.this);
+                title.setTextSize(12);
+                title.setTextColor(Color.parseColor("#6b7280"));
+                title.setTypeface(Typeface.DEFAULT_BOLD);
+                title.setPadding(dp(14), dp(10), dp(14), dp(2));
+                title.setOnClickListener(v -> {
+                    h.reasoningOpen = !h.reasoningOpen;
+                    title.setText(h.reasoningOpen ? "💭 思考过程" : "💭 思考过程（点击展开）");
+                    if (h.reasoningScroll != null) {
+                        h.reasoningScroll.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
+                    }
+                });
+                bubble.addView(title);
+
+                TextView rt = new TextView(ChatActivity.this);
+                rt.setTextSize(13);
+                rt.setTextColor(Color.parseColor("#6b7280"));
+                rt.setLineSpacing(0, 1.25f);
+                rt.setPadding(dp(14), dp(4), dp(14), dp(8));
+                android.widget.ScrollView sv = new android.widget.ScrollView(ChatActivity.this);
+                sv.setFillViewport(false);
+                sv.addView(rt);
+                bubble.addView(sv, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                TextView tv = new TextView(ChatActivity.this);
+                tv.setTextSize(15);
+                tv.setLineSpacing(0, 1.15f);
+                tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+                tv.setTextColor(Color.parseColor("#111827"));
+                bubble.addView(tv);
+                h.reasoningTitle = title;
+                h.reasoningText = rt;
+                h.reasoningScroll = sv;
+                h.answerText = tv;
+            }
+
+            boolean hasReasoning = !m.reasoning.trim().isEmpty();
+            if (hasReasoning) {
+                h.reasoningTitle.setVisibility(View.VISIBLE);
+                h.reasoningTitle.setText(h.reasoningOpen ? "💭 思考过程" : "💭 思考过程（点击展开）");
+                h.reasoningScroll.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
+                h.reasoningText.setText(m.reasoning);
+                int hh = m.reasoning.length() > 400
+                        ? dp(300)
+                        : ViewGroup.LayoutParams.WRAP_CONTENT;
+                h.reasoningScroll.setLayoutParams(new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, hh));
+            } else {
+                h.reasoningTitle.setVisibility(View.GONE);
+                h.reasoningScroll.setVisibility(View.GONE);
+                h.reasoningText.setText("");
+            }
+            markwon.setMarkdown(h.answerText, m.text + (m.live ? " ▍" : ""));
+        };
 
         LinearLayout inputRow = new LinearLayout(this);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -380,19 +488,31 @@ public class ChatActivity extends Activity {
                         idx = result.size() - 1;
                         turnIndex.put(turn, idx);
                     }
-                    String t = textOf(d.optJSONObject("message"));
-                    if (!t.isEmpty()) result.get(idx).text = t;
+                    String[] parts = textAndReasoning(d.optJSONObject("message"));
+                    if (parts[0] != null && !parts[0].isEmpty()) result.get(idx).text = parts[0];
+                    if (parts[1] != null && !parts[1].isEmpty()) result.get(idx).reasoning = parts[1];
                 } else if ("assistant/chunk".equals(type)) {
                     flushPendingUser(result, pendingUser);
                     JSONObject chunk = d.optJSONObject("chunk");
-                    if (chunk != null && "text-delta".equals(chunk.optString("type"))) {
+                    if (chunk != null) {
+                        String ctype = chunk.optString("type");
                         Integer idx = turnIndex.get(turn);
                         if (idx == null) {
                             result.add(new Msg(TYPE_ASSISTANT, "", false));
                             idx = result.size() - 1;
                             turnIndex.put(turn, idx);
                         }
-                        result.get(idx).text += chunk.optString("text", "");
+                        if ("text-delta".equals(ctype)) {
+                            result.get(idx).text += chunk.optString("text", "");
+                        } else if ("reasoning-delta".equals(ctype)) {
+                            result.get(idx).reasoning += chunk.optString("text", "");
+                        } else if ("block-end".equals(ctype)) {
+                            JSONObject block = chunk.optJSONObject("block");
+                            if (block != null && "reasoning".equals(block.optString("type"))) {
+                                String full = block.optString("text", "");
+                                if (!full.isEmpty()) result.get(idx).reasoning = full;
+                            }
+                        }
                     }
                 }
             } catch (Exception ignored) {
@@ -421,9 +541,13 @@ public class ChatActivity extends Activity {
                 JSONObject value = api.rpc("session.history", payload);
                 final List<Msg> tail = fold(value == null ? null : value.optJSONArray("events"));
                 main.post(() -> {
-                    mergeTail(tail);
-                    adapter.notifyDataSetChanged();
-                    scrollToEnd();
+                    int change = mergeTail(tail);
+                    if (change == 2) {
+                        adapter.notifyDataSetChanged();
+                        scrollToEnd();
+                    } else if (change == 1) {
+                        refreshTail();
+                    }
                 });
             } catch (Exception ignored) {
                 tailFailures++;
@@ -435,15 +559,17 @@ public class ChatActivity extends Activity {
         }, "update-tail").start();
     }
 
-    private void mergeTail(List<Msg> tail) {
-        if (tail.isEmpty()) return;
+    // 0 = no change, 1 = last message content changed, 2 = structure changed.
+    private int mergeTail(List<Msg> tail) {
+        if (tail.isEmpty()) return 0;
         int i = messages.size() - 1;
         int j = tail.size() - 1;
         while (i >= 0 && j >= 0 && sameMsg(messages.get(i), tail.get(j))) {
             i--;
             j--;
         }
-        if (j < 0) return;
+        if (j < 0) return 0;
+        int oldSize = messages.size();
         while (messages.size() > i + 1) {
             messages.remove(messages.size() - 1);
         }
@@ -455,25 +581,66 @@ public class ChatActivity extends Activity {
         for (int k = start; k <= j; k++) {
             messages.add(tail.get(k));
         }
+        return messages.size() == oldSize ? 1 : 2;
     }
 
     private boolean sameMsg(Msg a, Msg b) {
-        return a.type == b.type && a.text.equals(b.text);
+        return a.type == b.type
+                && a.text.equals(b.text)
+                && a.reasoning.equals(b.reasoning);
+    }
+
+    private void refreshTail() {
+        if (messages.isEmpty()) return;
+        int pos = messages.size() - 1;
+        int first = listView.getFirstVisiblePosition();
+        int last = listView.getLastVisiblePosition();
+        if (pos < first || pos > last) {
+            maybeScrollToEnd();
+            return;
+        }
+        View row = listView.getChildAt(pos - first);
+        if (row != null) {
+            bindRow.accept(row, pos);
+        }
+        maybeScrollToEnd();
+    }
+
+    private void maybeScrollToEnd() {
+        if (listView.getCount() > 0
+                && listView.getLastVisiblePosition() >= listView.getCount() - 2) {
+            scrollToEnd();
+        }
     }
 
     private String textOf(JSONObject message) {
-        if (message == null) return "";
+        String[] parts = textAndReasoning(message);
+        return parts[0] == null ? "" : parts[0];
+    }
+
+    private String[] textAndReasoning(JSONObject message) {
+        String text = "";
+        String reasoning = null;
+        if (message == null) return new String[]{text, reasoning};
         JSONArray content = message.optJSONArray("content");
-        if (content == null) return "";
+        if (content == null) return new String[]{text, reasoning};
         StringBuilder sb = new StringBuilder();
+        StringBuilder rsb = new StringBuilder();
         for (int i = 0; i < content.length(); i++) {
             JSONObject b = content.optJSONObject(i);
-            if (b != null && "text".equals(b.optString("type"))) {
+            if (b == null) continue;
+            String t = b.optString("type");
+            if ("text".equals(t)) {
                 if (sb.length() > 0) sb.append("\n");
                 sb.append(b.optString("text", ""));
+            } else if ("reasoning".equals(t)) {
+                if (rsb.length() > 0) rsb.append("\n");
+                rsb.append(b.optString("text", ""));
             }
         }
-        return sb.toString();
+        text = sb.toString();
+        reasoning = rsb.length() > 0 ? rsb.toString() : null;
+        return new String[]{text, reasoning};
     }
 
     private void setStatus(String s) {
