@@ -34,6 +34,7 @@ function main() {
   let quitting = false
   let backendStopped = false
   let updateInProgress = false
+  let lastPluginWarning = null
 
   const userData = app.getPath('userData')
   const settingsFile = path.join(userData, 'settings.json')
@@ -217,7 +218,12 @@ function main() {
     console.log('[dsh-desktop] backend ready:', instance.label, url)
     if (instance !== backend) return
     loadAll(url, false)
-    sendStatus({ state: 'ready', url, mode: instance.label })
+    const warning = instance.pluginLoadWarning || null
+    sendStatus({ state: 'ready', url, mode: instance.label, warning })
+    if (warning && warning !== lastPluginWarning) {
+      lastPluginWarning = warning
+      notify('部分插件无法加载', '已自动忽略，不影响使用：' + warning + '\n如持续出现，可在设置-连接管理里卸载该插件。')
+    }
     notify('DeepSeek Harness is ready', (instance.label ? instance.label + ' · ' : '') + url)
   }
 

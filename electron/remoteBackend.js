@@ -285,6 +285,7 @@ class RemoteBackend extends EventEmitter {
     this.localPort = null
     this._stopping = false
     this._logStream = null
+    this.pluginLoadWarning = null
   }
 
   get running() {
@@ -343,6 +344,10 @@ class RemoteBackend extends EventEmitter {
     if (this._logStream) this._logStream.write(text)
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue
+      if (!this.pluginLoadWarning
+          && /Failed to load plugins|failed to import loader entry|bundle script .* failed to load/i.test(line)) {
+        this.pluginLoadWarning = line.trim().slice(0, 220)
+      }
       this.emit('log', { line, error: isError })
       if ((READY_LINE_RE.test(line) || line.includes('dsh web: ready')) && !this.url) {
         this.url = 'http://127.0.0.1:' + this.localPort

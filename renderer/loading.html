@@ -110,7 +110,9 @@
         if (status.state === 'starting') {
           setStatus('正在启动 · ' + (status.mode || '本机') + '…（首次会自动下载最新版 dsh，可能需要几分钟）')
         } else if (status.state === 'ready') {
-          setStatus('已连接 · ' + status.url)
+          setStatus(status.warning
+            ? '已连接（部分插件无法加载，已自动忽略）· ' + status.url
+            : '已连接 · ' + status.url)
         } else if (status.state === 'error') {
           setStatus((status.mode ? status.mode + '：' : '') + (status.message || '未知错误'), { error: true })
         } else if (status.state === 'exited') {

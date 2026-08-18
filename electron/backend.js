@@ -140,6 +140,7 @@ class DshBackend extends EventEmitter {
     this.url = null
     this._stopping = false
     this._logStream = null
+    this.pluginLoadWarning = null
   }
 
   get running() {
@@ -221,6 +222,10 @@ class DshBackend extends EventEmitter {
 
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue
+      if (!this.pluginLoadWarning
+          && /Failed to load plugins|failed to import loader entry|bundle script .* failed to load/i.test(line)) {
+        this.pluginLoadWarning = line.trim().slice(0, 220)
+      }
       this.emit('log', { line, error: isError })
       const match = line.match(READY_LINE_RE)
       if (match && !this.url) {
