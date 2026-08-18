@@ -27,9 +27,11 @@ public class ConnectionStore {
         seedIfEmpty(context);
     }
 
-    // Seed connections from a local server-presets.json when the store is empty.
-    // The file lives in the app's private files dir and is NOT part of the repo,
-    // so no real server or API-key data is ever committed to GitHub.
+    // Seed connections from a server-presets.json when the store is empty.
+    // Priority: 1) the app's private files dir (device-local, e.g. copied by the
+    // user or the launcher), 2) the APK's bundled assets. The public APK ships
+    // an empty placeholder so nothing is seeded; a private build can bundle real
+    // server presets and they appear automatically on first launch.
     private void seedIfEmpty(Context context) {
         if (!list().isEmpty()) return;
         String json = null;
@@ -41,6 +43,14 @@ public class ConnectionStore {
                 in.close();
             }
         } catch (Exception ignored) {
+        }
+        if (json == null) {
+            try {
+                InputStream in = context.getAssets().open("server-presets.json");
+                json = new String(readAll(in), StandardCharsets.UTF_8);
+                in.close();
+            } catch (Exception ignored) {
+            }
         }
         if (json == null) return;
         try {
