@@ -60,8 +60,17 @@ public class MainActivity extends Activity {
     private String currentUrl = null;
     private boolean inChat = false;
     private int reconnectAttempts = 0;
+    private String lastSessionsKey = "";
     private final Handler main = new Handler(Looper.getMainLooper());
     private String injectJs;
+    private final Runnable sessionRefresher = new Runnable() {
+        @Override
+        public void run() {
+            if (!homeView.isShown() || currentUrl == null) return;
+            loadSessions();
+            main.postDelayed(this, 5000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,6 +103,22 @@ public class MainActivity extends Activity {
         } else {
             showOverlay("还没有配置远程服务器", "点击下方按钮添加一个 SSH 连接", "idle");
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (homeView != null && homeView.isShown() && currentUrl != null) {
+            loadSessions();
+            main.removeCallbacks(sessionRefresher);
+            main.postDelayed(sessionRefresher, 5000);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        main.removeCallbacks(sessionRefresher);
+        super.onPause();
     }
 
     private void buildUi() {
@@ -383,12 +408,15 @@ public class MainActivity extends Activity {
         webView.setVisibility(View.GONE);
         homeView.setVisibility(View.VISIBLE);
         setStatus("ready");
-        if (currentUrl != null) loadSessions();
+        if (currentUrl != null) {
+            loadSessions();
+            main.removeCallbacks(sessionRefresher);
+            main.postDelayed(sessionRefresher, 5000);
+        }
     }
 
     private void loadSessions() {
         homeEmpty.setVisibility(View.GONE);
-        sessionsList.setAdapter(null);
         final String base = currentUrl;
         new Thread(() -> {
             try {
@@ -413,6 +441,14 @@ public class MainActivity extends Activity {
     }
 
     private void renderSessions(final List<JSONObject> sessions) {
+        StringBuilder key = new StringBuilder();
+        for (JSONObject s : sessions) {
+            key.append(s.optString("sessionId")).append('|')
+                    .append(s.optBoolean("running", false)).append(';');
+        }
+        String k = key.toString();
+        if (k.equals(lastSessionsKey)) return;
+        lastSessionsKey = k;
         Log.i("DSH", "render sessions: " + sessions.size());
         if (sessions.isEmpty()) {
             homeEmpty.setVisibility(View.VISIBLE);

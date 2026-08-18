@@ -104,7 +104,18 @@ public class ChatActivity extends Activity {
         buildUi();
         setStatus("加载中");
         loadHistory(30, false);
-        checkRunningAndPoll();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startPolling();
+    }
+
+    @Override
+    protected void onPause() {
+        stopPolling();
+        super.onPause();
     }
 
     private void buildUi() {
@@ -366,10 +377,7 @@ public class ChatActivity extends Activity {
     private void startPolling() {
         if (pollActive) return;
         pollActive = true;
-        running = true;
-        setStatus("生成中");
         poller = new Thread(() -> {
-            int idleRounds = 0;
             while (pollActive) {
                 try {
                     JSONArray items = api.listSessions();
@@ -384,16 +392,10 @@ public class ChatActivity extends Activity {
                     running = isRunning;
                     main.post(() -> setStatus(running ? "生成中" : "已完成"));
                     updateTail();
-                    if (!isRunning) {
-                        idleRounds++;
-                        if (idleRounds >= 2) break;
-                    } else {
-                        idleRounds = 0;
-                    }
                 } catch (Exception ignored) {
                 }
                 try {
-                    Thread.sleep(1500);
+                    Thread.sleep(3000);
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -403,20 +405,9 @@ public class ChatActivity extends Activity {
         poller.start();
     }
 
-    private void checkRunningAndPoll() {
-        new Thread(() -> {
-            try {
-                JSONArray items = api.listSessions();
-                for (int i = 0; i < items.length(); i++) {
-                    JSONObject s = items.optJSONObject(i);
-                    if (s != null && sessionId.equals(s.optString("sessionId")) && s.optBoolean("running", false)) {
-                        main.post(() -> startPolling());
-                        return;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }, "check-running").start();
+    private void stopPolling() {
+        pollActive = false;
+        if (poller != null) poller.interrupt();
     }
 
     private void loadHistory(int maxMessages, final boolean keepPosition) {
@@ -433,7 +424,7 @@ public class ChatActivity extends Activity {
                     adapter.notifyDataSetChanged();
                     if (keepPosition) scrollToEnd();
                     else scrollToEnd();
-                    if (!pollActive) {
+                    if (!running) {
                         setStatus("");
                     }
                 });
