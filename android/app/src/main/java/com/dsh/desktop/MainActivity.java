@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
     private String currentName = "";
     private String currentUrl = null;
     private boolean inChat = false;
+    private int reconnectAttempts = 0;
     private final Handler main = new Handler(Looper.getMainLooper());
     private String injectJs;
 
@@ -322,7 +323,9 @@ public class MainActivity extends Activity {
             @Override
             public void onReady(String url) {
                 main.post(() -> {
+                    reconnectAttempts = 0;
                     currentUrl = url;
+                    saveLocalPort(url);
                     showHome();
                 });
             }
@@ -331,7 +334,39 @@ public class MainActivity extends Activity {
             public void onError(String message) {
                 main.post(() -> showOverlay("连接失败", message, "error"));
             }
+
+            @Override
+            public void onDisconnected(String message) {
+                main.post(() -> {
+                    if (currentName == null || currentName.isEmpty()) return;
+                    if (reconnectAttempts >= 3) {
+                        showOverlay("连接已断开", message + "\n多次自动重连失败，请检查网络后重试", "error");
+                        return;
+                    }
+                    reconnectAttempts++;
+                    showOverlay("连接已断开", "正在自动重连 " + currentName + " …", "starting");
+                    main.postDelayed(() -> {
+                        if (currentName != null && !currentName.isEmpty()) {
+                            connectTo(currentName);
+                        }
+                    }, 3000);
+                });
+            }
         });
+    }
+
+    private void saveLocalPort(String url) {
+        int p = url.lastIndexOf(':');
+        if (p < 0) return;
+        try {
+            int localPort = Integer.parseInt(url.substring(p + 1).replaceAll("\\D.*", ""));
+            if (localPort <= 0) return;
+            JSONObject profile = store.get(currentName);
+            if (profile == null) return;
+            profile.put("localPort", localPort);
+            store.update(currentName, profile);
+        } catch (Exception ignored) {
+        }
     }
 
     private void showHome() {
@@ -364,7 +399,7 @@ public class MainActivity extends Activity {
                 Log.e("DSH", "load sessions error: " + e.getMessage());
                 main.post(() -> {
                     homeEmpty.setVisibility(View.VISIBLE);
-                    homeEmpty.setText("无法读取会话：" + e.getMessage());
+                    homeEmpty.setText("远程连接已断开，正在自动重连…");
                 });
             }
         }, "load-sessions").start();

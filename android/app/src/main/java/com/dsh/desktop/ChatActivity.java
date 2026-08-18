@@ -52,6 +52,8 @@ public class ChatActivity extends Activity {
     private volatile boolean pollActive = false;
     private Thread poller;
     private Markwon markwon;
+    private volatile int loadRetries = 0;
+    private volatile int tailFailures = 0;
 
     private static class Msg {
         int type;
@@ -158,8 +160,8 @@ public class ChatActivity extends Activity {
                 tv.setTextSize(15);
                 tv.setLineSpacing(0, 1.15f);
                 tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-                tv.setMaxWidth(dp(280));
                 if (m.type == TYPE_USER) {
+                    tv.setMaxWidth(dp(280));
                     tv.setText(m.text);
                     tv.setTextColor(Color.WHITE);
                     tv.setBackground(rounded(Color.parseColor("#2563eb")));
@@ -172,7 +174,12 @@ public class ChatActivity extends Activity {
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(m.type == TYPE_USER ? Gravity.RIGHT : Gravity.LEFT);
                 row.setPadding(dp(12), dp(5), dp(12), dp(5));
-                row.addView(tv);
+                if (m.type == TYPE_USER) {
+                    row.addView(tv);
+                } else {
+                    row.addView(tv, new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                }
                 return row;
             }
         };
@@ -318,15 +325,23 @@ public class ChatActivity extends Activity {
                     adapter.notifyDataSetChanged();
                     if (keepPosition) scrollToEnd();
                     else scrollToEnd();
-                    if (!pollActive && statusText.getText().toString().contains("加载中")) {
+                    if (!pollActive) {
                         setStatus("");
                     }
                 });
             } catch (Exception e) {
                 main.post(() -> {
                     if (messages.isEmpty()) {
-                        messages.add(new Msg(TYPE_ASSISTANT, "无法读取会话：" + e.getMessage(), false));
-                        adapter.notifyDataSetChanged();
+                        if (loadRetries < 60) {
+                            loadRetries++;
+                            setStatus("连接中断，正在重连…");
+                            main.postDelayed(() -> loadHistory(30, false), 5000);
+                        } else {
+                            messages.add(new Msg(TYPE_ASSISTANT,
+                                    "无法读取对话：远程连接已断开，请返回检查网络后重试", false));
+                            adapter.notifyDataSetChanged();
+                            setStatus("连接中断");
+                        }
                     }
                 });
             }
@@ -411,6 +426,11 @@ public class ChatActivity extends Activity {
                     scrollToEnd();
                 });
             } catch (Exception ignored) {
+                tailFailures++;
+                if (tailFailures >= 3) {
+                    tailFailures = 0;
+                    main.post(() -> setStatus("连接中断，正在重连…"));
+                }
             }
         }, "update-tail").start();
     }

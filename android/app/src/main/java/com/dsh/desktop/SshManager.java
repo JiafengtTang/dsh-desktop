@@ -18,13 +18,19 @@ public class SshManager {
         void onReady(String url);
 
         void onError(String message);
+
+        void onDisconnected(String message);
     }
 
     private Session session;
     private ChannelExec channel;
     private Thread reader;
     private volatile boolean stopping = false;
+    private volatile boolean established = false;
     private final Object lock = new Object();
+    private Listener listener;
+    private final java.util.concurrent.atomic.AtomicBoolean reported =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public boolean isConnected() {
         synchronized (lock) {
@@ -34,6 +40,8 @@ public class SshManager {
 
     public void connect(JSONObject profile, Listener listener) {
         disconnect();
+        this.listener = listener;
+        reported.set(false);
         final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
         new Thread(() -> {
             try {
@@ -73,8 +81,19 @@ public class SshManager {
                     session = s;
                 }
 
-                int localPort = findFreePort();
-                s.setPortForwardingL(localPort, "127.0.0.1", remotePort);
+                int localPort = profile.optInt("localPort", 0);
+                if (localPort <= 0) {
+                    localPort = 37000 + Math.floorMod((host + ":" + user + ":" + port).hashCode(), 3000);
+                }
+                try {
+                    s.setPortForwardingL(localPort, "127.0.0.1", remotePort);
+                } catch (Exception portBusy) {
+                    // Fixed port is taken: fall back to a dynamic one. The URL
+                    // will change, but this is rare and still works for this run.
+                    localPort = findFreePort();
+                    s.setPortForwardingL(localPort, "127.0.0.1", remotePort);
+                }
+                profile.put("localPort", localPort);
                 final String url = "http://127.0.0.1:" + localPort;
 
                 String cdPath;
@@ -97,6 +116,7 @@ public class SshManager {
                 }
 
                 stopping = false;
+                established = false;
                 reader = new Thread(() -> {
                     try {
                         byte[] buf = new byte[4096];
@@ -115,6 +135,7 @@ public class SshManager {
                                 outLog.append(line).append('\n');
                                 if (listener != null) listener.onOutput(line, false);
                                 if (line.contains("dsh web:")) {
+                                    established = true;
                                     if (done.compareAndSet(false, true) && listener != null) listener.onReady(url);
                                     return;
                                 }
@@ -130,9 +151,29 @@ public class SshManager {
                             listener.onError("远程命令已退出，未检测到 dsh 就绪\n最近输出：\n" + tail(outLog));
                         }
                     } catch (Exception ignored) {
+                        if (established && !stopping) notifyDisconnected("远程连接已断开");
                     }
+                    if (established && !stopping) notifyDisconnected("远程连接已断开");
                 }, "ssh-reader");
                 reader.start();
+
+                Thread monitor = new Thread(() -> {
+                    while (!stopping) {
+                        try {
+                            Thread.sleep(10000);
+                        } catch (InterruptedException e) {
+                            return;
+                        }
+                        synchronized (lock) {
+                            if (established && !stopping && (session == null || !session.isConnected())) {
+                                notifyDisconnected("远程连接已断开");
+                                return;
+                            }
+                        }
+                    }
+                }, "ssh-monitor");
+                monitor.setDaemon(true);
+                monitor.start();
             } catch (Exception e) {
                 if (done.compareAndSet(false, true) && listener != null) {
                     listener.onError(e.getMessage() == null ? String.valueOf(e) : e.getMessage());
@@ -156,6 +197,7 @@ public class SshManager {
 
     public void disconnect() {
         stopping = true;
+        established = false;
         try {
             if (reader != null) reader.interrupt();
         } catch (Exception ignored) {
@@ -172,6 +214,13 @@ public class SshManager {
             }
             session = null;
         }
+    }
+
+    private void notifyDisconnected(String message) {
+        if (reported.compareAndSet(false, true) && listener != null) {
+            listener.onDisconnected(message);
+        }
+        disconnect();
     }
 
     private static int findFreePort() throws Exception {
