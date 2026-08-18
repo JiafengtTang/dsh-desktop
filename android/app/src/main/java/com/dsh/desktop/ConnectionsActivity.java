@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -34,32 +35,49 @@ public class ConnectionsActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#0b0f14"));
+        root.setBackgroundColor(Color.parseColor("#f7f8fa"));
 
         TextView header = new TextView(this);
         header.setText("远程连接");
-        header.setTextColor(Color.parseColor("#e8eefb"));
+        header.setTextColor(Color.parseColor("#111827"));
         header.setTextSize(20);
         header.setTypeface(Typeface.DEFAULT_BOLD);
-        header.setPadding(dp(18), dp(24), dp(18), dp(12));
+        header.setPadding(dp(18), dp(20), dp(18), dp(10));
         root.addView(header, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        Button addBtn = new Button(this);
+        addBtn.setText("＋ 添加远程服务器");
+        addBtn.setTextSize(16);
+        addBtn.setAllCaps(false);
+        addBtn.setTextColor(Color.WHITE);
+        addBtn.setPadding(dp(14), dp(13), dp(14), dp(13));
+        addBtn.setBackground(rounded(Color.parseColor("#2563eb")));
+        addBtn.setOnClickListener(v -> editDialog(null));
+        LinearLayout.LayoutParams abLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        abLp.setMargins(dp(14), 0, dp(14), dp(12));
+        root.addView(addBtn, abLp);
+
         listView = new ListView(this);
         listView.setDivider(null);
+        listView.setBackgroundColor(Color.parseColor("#f7f8fa"));
         root.addView(listView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        Button addBtn = new Button(this);
-        addBtn.setText("＋ 添加远程服务器");
-        addBtn.setTextSize(15);
-        addBtn.setAllCaps(false);
-        addBtn.setOnClickListener(v -> editDialog(null));
-        root.addView(addBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        View spacer = new View(this);
+        root.addView(spacer, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(28)));
 
         setContentView(root);
         reload();
+    }
+
+    private GradientDrawable rounded(int color) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(14));
+        return g;
     }
 
     private void reload() {
@@ -85,12 +103,12 @@ public class ConnectionsActivity extends Activity {
                 JSONObject c = connections.get(position);
                 LinearLayout row = new LinearLayout(ConnectionsActivity.this);
                 row.setOrientation(LinearLayout.VERTICAL);
-                row.setPadding(dp(18), dp(12), dp(12), dp(12));
-                row.setBackgroundColor(Color.parseColor("#121823"));
+                row.setPadding(dp(16), dp(12), dp(12), dp(12));
+                row.setBackgroundColor(Color.WHITE);
 
                 TextView name = new TextView(ConnectionsActivity.this);
                 name.setText(c.optString("name", ""));
-                name.setTextColor(Color.parseColor("#e8eefb"));
+                name.setTextColor(Color.parseColor("#111827"));
                 name.setTextSize(16);
                 name.setTypeface(Typeface.DEFAULT_BOLD);
                 row.addView(name);
@@ -98,7 +116,7 @@ public class ConnectionsActivity extends Activity {
                 TextView sub = new TextView(ConnectionsActivity.this);
                 String target = c.optString("user", "") + "@" + c.optString("host", "");
                 sub.setText(target + "  ·  " + c.optString("projectDir", "~"));
-                sub.setTextColor(Color.parseColor("#8b98b3"));
+                sub.setTextColor(Color.parseColor("#9ca3af"));
                 sub.setTextSize(12);
                 row.addView(sub);
 
@@ -120,7 +138,7 @@ public class ConnectionsActivity extends Activity {
                 btnRow.addView(edit);
 
                 Button del = smallButton("删除");
-                del.setTextColor(Color.parseColor("#ff8b8b"));
+                del.setTextColor(Color.parseColor("#ef4444"));
                 del.setOnClickListener(v -> {
                     store.remove(c.optString("name"));
                     reload();
@@ -129,7 +147,7 @@ public class ConnectionsActivity extends Activity {
 
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.setMargins(dp(8), dp(6), dp(8), 0);
+                lp.setMargins(dp(10), dp(5), dp(10), dp(5));
                 row.setLayoutParams(lp);
                 return row;
             }
@@ -140,11 +158,11 @@ public class ConnectionsActivity extends Activity {
     private Button smallButton(String text) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextSize(12);
+        b.setTextSize(13);
         b.setAllCaps(false);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(4), dp(8), 0, 0);
+        lp.setMargins(dp(4), dp(10), 0, 0);
         b.setLayoutParams(lp);
         return b;
     }
@@ -155,18 +173,25 @@ public class ConnectionsActivity extends Activity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(8), dp(4), dp(8), 0);
 
+        TextView hint = new TextView(this);
+        hint.setText("只需填 名称 / 主机 / 用户名，其余有默认值");
+        hint.setTextColor(Color.parseColor("#9ca3af"));
+        hint.setTextSize(12);
+        form.addView(hint, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         EditText name = field(form, "名称 *");
         EditText host = field(form, "主机 / IP *");
         EditText user = field(form, "用户名 *");
-        EditText port = field(form, "端口（默认 22）");
+        EditText port = field(form, "SSH 端口（默认 22）");
         EditText password = field(form, "密码（可选）");
         EditText keyContent = field(form, "私钥内容（可选，粘贴 PEM）");
         keyContent.setLines(4);
         EditText projectDir = field(form, "远程项目目录（默认 ~）");
         EditText remotePort = field(form, "远程 dsh 端口（0 = 自动）");
         EditText shell = field(form, "远程 shell（默认 bash）");
-        EditText dshCommand = field(form, "远程 dsh 命令");
-        EditText url = field(form, "直连地址（可选，跳过 SSH 直接打开 dsh 网页）");
+        EditText dshCommand = field(form, "远程 dsh 命令（默认 npx）");
+        EditText url = field(form, "直连地址（可选，跳过 SSH）");
         scroll.addView(form);
 
         if (existing != null) {
@@ -185,6 +210,7 @@ public class ConnectionsActivity extends Activity {
             port.setText("22");
             remotePort.setText("0");
             shell.setText("bash");
+            projectDir.setText("~");
         }
 
         new AlertDialog.Builder(this)
@@ -231,7 +257,7 @@ public class ConnectionsActivity extends Activity {
     private EditText field(LinearLayout form, String label) {
         TextView tv = new TextView(this);
         tv.setText(label);
-        tv.setTextColor(Color.parseColor("#8b98b3"));
+        tv.setTextColor(Color.parseColor("#6b7280"));
         tv.setTextSize(12);
         LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -239,8 +265,8 @@ public class ConnectionsActivity extends Activity {
         form.addView(tv, tLp);
 
         EditText et = new EditText(this);
-        et.setTextColor(Color.parseColor("#e8eefb"));
-        et.setHintTextColor(Color.parseColor("#5b6478"));
+        et.setTextColor(Color.parseColor("#111827"));
+        et.setHintTextColor(Color.parseColor("#9ca3af"));
         et.setTextSize(14);
         form.addView(et, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

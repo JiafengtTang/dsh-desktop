@@ -1,0 +1,14 @@
+[
+  {
+    "name": "示例服务器",
+    "host": "your-server-ip",
+    "user": "ubuntu",
+    "port": 22,
+    "password": "",
+    "projectDir": "~",
+    "remotePort": 0,
+    "shell": "bash",
+    "dshCommand": "npx -y @deepseek-ai/dsh@0.1.0-rc.6",
+    "url": ""
+  }
+]

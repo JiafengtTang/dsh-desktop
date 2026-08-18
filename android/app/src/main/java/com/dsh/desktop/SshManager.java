@@ -34,6 +34,7 @@ public class SshManager {
 
     public void connect(JSONObject profile, Listener listener) {
         disconnect();
+        final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
         new Thread(() -> {
             try {
                 String host = profile.optString("host", "").trim();
@@ -47,7 +48,7 @@ public class SshManager {
                 String dshCommand = profile.optString("dshCommand", "").trim();
 
                 if (host.isEmpty() || user.isEmpty()) {
-                    if (listener != null) listener.onError("主机和用户名不能为空");
+                    if (done.compareAndSet(false, true) && listener != null) listener.onError("主机和用户名不能为空");
                     return;
                 }
                 if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@0.1.0-rc.6";
@@ -100,6 +101,8 @@ public class SshManager {
                     try {
                         byte[] buf = new byte[4096];
                         StringBuilder pending = new StringBuilder();
+                        StringBuilder outLog = new StringBuilder();
+                        long deadline = System.currentTimeMillis() + 150000; // 150s to become ready
                         int n;
                         while (!stopping && (n = in.read(buf)) > 0) {
                             pending.append(new String(buf, 0, n, StandardCharsets.UTF_8));
@@ -108,22 +111,47 @@ public class SshManager {
                                 String line = pending.substring(0, idx).trim();
                                 pending.delete(0, idx + 1);
                                 if (line.isEmpty()) continue;
+                                if (outLog.length() > 4000) outLog.delete(0, outLog.length() - 3000);
+                                outLog.append(line).append('\n');
                                 if (listener != null) listener.onOutput(line, false);
                                 if (line.contains("dsh web:")) {
-                                    if (listener != null) listener.onReady(url);
+                                    if (done.compareAndSet(false, true) && listener != null) listener.onReady(url);
+                                    return;
+                                }
+                                if (System.currentTimeMillis() > deadline) {
+                                    if (done.compareAndSet(false, true) && listener != null) {
+                                        listener.onError("连接超时（远程 dsh 未就绪）\n最近输出：\n" + tail(outLog));
+                                    }
+                                    return;
                                 }
                             }
+                        }
+                        if (!stopping && done.compareAndSet(false, true) && listener != null) {
+                            listener.onError("远程命令已退出，未检测到 dsh 就绪\n最近输出：\n" + tail(outLog));
                         }
                     } catch (Exception ignored) {
                     }
                 }, "ssh-reader");
                 reader.start();
             } catch (Exception e) {
-                if (listener != null) {
+                if (done.compareAndSet(false, true) && listener != null) {
                     listener.onError(e.getMessage() == null ? String.valueOf(e) : e.getMessage());
                 }
             }
         }, "ssh-connect").start();
+        Thread watchdog = new Thread(() -> {
+            try {
+                Thread.sleep(60000);
+            } catch (InterruptedException e) {
+                return;
+            }
+            if (done.compareAndSet(false, true)) {
+                if (listener != null) listener.onError("连接超时（60 秒），请检查网络 / SSH 端口 / 用户名密码");
+                disconnect();
+            }
+        }, "ssh-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
     }
 
     public void disconnect() {
@@ -154,5 +182,14 @@ public class SshManager {
 
     private static String quote(String s) {
         return "'" + s.replace("'", "'\\''") + "'";
+    }
+
+    private static String tail(StringBuilder sb) {
+        String s = sb.toString();
+        String[] lines = s.split("\n");
+        int from = Math.max(0, lines.length - 12);
+        StringBuilder out = new StringBuilder();
+        for (int i = from; i < lines.length; i++) out.append(lines[i]).append('\n');
+        return out.toString().trim();
     }
 }

@@ -140,6 +140,16 @@ public class MainActivity extends Activity {
         });
         statusBar.addView(wsBtn);
 
+        Button connBtn = new Button(this);
+        connBtn.setText("连接");
+        connBtn.setTextSize(13);
+        connBtn.setAllCaps(false);
+        connBtn.setOnClickListener(v -> openConnections());
+        LinearLayout.LayoutParams cbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cbLp.setMargins(dp(6), 0, 0, 0);
+        statusBar.addView(connBtn, cbLp);
+
         // ---- Home view: native conversation list ----
         homeView = new LinearLayout(this);
         homeView.setOrientation(LinearLayout.VERTICAL);
@@ -302,6 +312,11 @@ public class MainActivity extends Activity {
         ssh.connect(profile, new SshManager.Listener() {
             @Override
             public void onOutput(String line, boolean error) {
+                main.post(() -> {
+                    String shown = line == null ? "" : line.trim();
+                    if (shown.length() > 80) shown = shown.substring(0, 80);
+                    overlayDetail.setText("SSH 输出：" + shown);
+                });
             }
 
             @Override
@@ -320,6 +335,7 @@ public class MainActivity extends Activity {
     }
 
     private void showHome() {
+        hideOverlay();
         inChat = false;
         backBtn.setVisibility(View.GONE);
         webView.setVisibility(View.GONE);
