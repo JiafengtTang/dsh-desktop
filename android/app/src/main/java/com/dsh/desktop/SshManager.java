@@ -4,6 +4,8 @@ import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
 
+import android.util.Log;
+
 import org.json.JSONObject;
 
 import java.io.InputStream;
@@ -42,6 +44,24 @@ public class SshManager {
         disconnect();
         this.listener = listener;
         reported.set(false);
+        ensureCryptoProvider();
+        Log.i("DSH", "connect: " + profile.optString("name", "?")
+                + " host=" + profile.optString("host", "")
+                + " user=" + profile.optString("user", "")
+                + " port=" + profile.optInt("port", 0)
+                + " remotePort=" + profile.optInt("remotePort", 0)
+                + " keyLen=" + profile.optString("keyContent", "").length());
+        JSch.setLogger(new com.jcraft.jsch.Logger() {
+            @Override
+            public boolean isEnabled(int level) {
+                return true;
+            }
+
+            @Override
+            public void log(int level, String message) {
+                Log.i("DSH-JSCH", message);
+            }
+        });
         final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
         new Thread(() -> {
             try {
@@ -60,7 +80,7 @@ public class SshManager {
                     return;
                 }
                 if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@0.1.0-rc.6";
-                if (remotePort <= 0) remotePort = 30000 + (int) (Math.random() * 20000);
+                if (remotePort <= 0) remotePort = stableRemotePort(profile);
                 if (projectDir.isEmpty()) projectDir = "~";
 
                 JSch jsch = new JSch();
@@ -104,7 +124,17 @@ public class SshManager {
                 } else {
                     cdPath = quote(projectDir);
                 }
-                String inner = "cd " + cdPath + " && " + dshCommand + " web --port " + remotePort;
+                // Reuse an already-running remote dsh on the fixed port, or start
+                // one detached (setsid + nohup) so it survives SSH disconnects.
+                // Phone and desktop then share ONE dsh process, which is what
+                // makes live session progress propagate between devices.
+                String log = "\"$HOME/.dsh/remote-web-" + remotePort + ".log\"";
+                String probe = "if curl -s -o /dev/null --max-time 2 http://127.0.0.1:" + remotePort + "/; then echo 'dsh web: ready'; exit 0; fi";
+                String start = "cd " + cdPath + " && (setsid nohup " + dshCommand + " web --port " + remotePort
+                        + " > " + log + " 2>&1 </dev/null &)";
+                String wait = "for i in $(seq 1 90); do if curl -s -o /dev/null http://127.0.0.1:" + remotePort
+                        + "/; then echo 'dsh web: ready'; exit 0; fi; sleep 1; done; echo 'dsh web: timeout'; exit 1";
+                String inner = probe + "; " + start + "; " + wait;
                 String command = shell + " -lc " + quote(inner);
                 ChannelExec exec = (ChannelExec) s.openChannel("exec");
                 exec.setCommand(command);
@@ -134,7 +164,7 @@ public class SshManager {
                                 if (outLog.length() > 4000) outLog.delete(0, outLog.length() - 3000);
                                 outLog.append(line).append('\n');
                                 if (listener != null) listener.onOutput(line, false);
-                                if (line.contains("dsh web:")) {
+                                if (line.contains("dsh web: ready")) {
                                     established = true;
                                     if (done.compareAndSet(false, true) && listener != null) listener.onReady(url);
                                     return;
@@ -195,6 +225,18 @@ public class SshManager {
         watchdog.start();
     }
 
+    // JSch signs ed25519 keys through java.security.Signature("Ed25519").
+    // Android's default providers do not always expose it, so register
+    // BouncyCastle once up front to make remote ed25519 keys work.
+    private static void ensureCryptoProvider() {
+        try {
+            if (java.security.Security.getProvider("BC") == null) {
+                java.security.Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void disconnect() {
         stopping = true;
         established = false;
@@ -227,6 +269,13 @@ public class SshManager {
         try (ServerSocket ss = new ServerSocket(0)) {
             return ss.getLocalPort();
         }
+    }
+
+    private static int stableRemotePort(JSONObject profile) {
+        String name = profile.optString("name", "");
+        int h = 0;
+        for (int i = 0; i < name.length(); i++) h = (h * 31 + name.charAt(i)) & 0x7fffffff;
+        return 43000 + (h % 900);
     }
 
     private static String quote(String s) {

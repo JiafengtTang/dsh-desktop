@@ -102,6 +102,16 @@ function randomHighPort() {
   return 40000 + Math.floor(Math.random() * 20000)
 }
 
+// Stable remote port derived from the profile name (43000-43999), so the phone
+// and the desktop resolve to the SAME remote dsh instance even when the profile
+// does not pin remotePort explicitly.
+function stableRemotePort(p) {
+  const name = String((p && p.name) || '').trim()
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return 43000 + (h % 900)
+}
+
 function baseSshArgs(p, forward) {
   const args = []
   if (p.identityFile) args.push('-i', p.identityFile)
@@ -117,7 +127,21 @@ function baseSshArgs(p, forward) {
 function remoteDshCommand(p, localDshHome) {
   const env = p.dshHome ? 'DSH_HOME=' + shellQuote(p.dshHome) + ' ' : ''
   const projectDir = p.projectDir && String(p.projectDir).trim() ? p.projectDir : '~'
-  const inner = 'cd ' + cdArg(projectDir) + ' && ' + env + p.dshCommand + ' web --port ' + p.remotePort
+  const port = p.remotePort
+  const log = '"$HOME/.dsh/remote-web-' + port + '.log"'
+  // Reuse an already-running instance on the fixed port; otherwise start one
+  // detached (setsid + nohup) so it survives SSH disconnects. This makes the
+  // phone and the desktop share the SAME dsh process, so live session events
+  // (streamed replies, queue state, progress) propagate between devices.
+  const probe = 'if curl -s -o /dev/null --max-time 2 http://127.0.0.1:' + port + '/; then echo "dsh web: ready"; exit 0; fi'
+  const start = 'cd ' + cdArg(projectDir) + ' && ' +
+    '(setsid nohup ' + env + p.dshCommand + ' web --port ' + port +
+    ' > ' + log + ' 2>&1 </dev/null &)'
+  const wait = 'for i in $(seq 1 90); do ' +
+    'if curl -s -o /dev/null http://127.0.0.1:' + port + '/; then ' +
+    'echo "dsh web: ready"; exit 0; fi; sleep 1; done; ' +
+    'echo "dsh web: timeout after 90s"; exit 1'
+  const inner = probe + '; ' + start + '; ' + wait
   return p.remoteShell + ' -lc ' + shellQuote(inner)
 }
 
@@ -236,9 +260,10 @@ function syncRemotePlugins(profile, localDshHome) {
 }
 
 function buildSshArgs(p, localPort, localDshHome) {
-  // -tt forces a pseudo-TTY so the remote dsh process group receives SIGHUP and
-  // exits when this SSH connection closes, instead of being orphaned.
-  return [...baseSshArgs(p, { local: localPort }), '-tt', sshTarget(p), remoteDshCommand(p, localDshHome)]
+  // No pseudo-TTY: the remote dsh is detached with setsid/nohup and must
+  // survive the SSH connection closing, otherwise the phone and desktop could
+  // never share the same instance.
+  return [...baseSshArgs(p, { local: localPort }), sshTarget(p), remoteDshCommand(p, localDshHome)]
 }
 
 class RemoteBackend extends EventEmitter {
@@ -269,7 +294,7 @@ class RemoteBackend extends EventEmitter {
     // Resolve the remote port: 0 (auto) picks a random high port so it never
     // collides with a leftover or unrelated process already on the remote.
     if (!p.remotePort) {
-      p.remotePort = randomHighPort()
+      p.remotePort = stableRemotePort(p)
     }
 
     try {
@@ -311,7 +336,7 @@ class RemoteBackend extends EventEmitter {
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue
       this.emit('log', { line, error: isError })
-      if (READY_LINE_RE.test(line) && !this.url) {
+      if ((READY_LINE_RE.test(line) || line.includes('dsh web: ready')) && !this.url) {
         this.url = 'http://127.0.0.1:' + this.localPort
         this.emit('ready', this.url)
       }
@@ -487,4 +512,4 @@ async function listWorkspaces(baseUrl, timeoutMs = 4000) {
   }
 }
 
-module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, normalizeProfile, sshTarget, findFreePort, randomHighPort }
+module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, normalizeProfile, sshTarget, findFreePort, randomHighPort, stableRemotePort }
