@@ -79,10 +79,11 @@ public class ChatActivity extends Activity {
         TextView answerText;
         TextView reasoningTitle;
         TextView reasoningText;
-        android.widget.ScrollView reasoningScroll;
         boolean reasoningOpen = true;
+        boolean userInteracted = false;
         int lastTextHash = 0;
         int lastReasoningHash = 0;
+        boolean lastLive = false;
     }
 
     @Override
@@ -206,11 +207,13 @@ public class ChatActivity extends Activity {
             Msg m = messages.get(position);
             RowHolder h = (RowHolder) row.getTag();
             if (h.lastTextHash == m.text.hashCode()
-                    && h.lastReasoningHash == m.reasoning.hashCode()) {
+                    && h.lastReasoningHash == m.reasoning.hashCode()
+                    && h.lastLive == m.live) {
                 return;
             }
             h.lastTextHash = m.text.hashCode();
             h.lastReasoningHash = m.reasoning.hashCode();
+            h.lastLive = m.live;
 
             if (m.type == TYPE_USER) {
                 if (h.userText == null) {
@@ -254,11 +257,10 @@ public class ChatActivity extends Activity {
                 title.setTypeface(Typeface.DEFAULT_BOLD);
                 title.setPadding(dp(14), dp(10), dp(14), dp(2));
                 title.setOnClickListener(v -> {
+                    h.userInteracted = true;
                     h.reasoningOpen = !h.reasoningOpen;
                     title.setText(h.reasoningOpen ? "💭 思考过程" : "💭 思考过程（点击展开）");
-                    if (h.reasoningScroll != null) {
-                        h.reasoningScroll.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
-                    }
+                    h.reasoningText.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
                 });
                 bubble.addView(title);
 
@@ -267,11 +269,7 @@ public class ChatActivity extends Activity {
                 rt.setTextColor(Color.parseColor("#6b7280"));
                 rt.setLineSpacing(0, 1.25f);
                 rt.setPadding(dp(14), dp(4), dp(14), dp(8));
-                android.widget.ScrollView sv = new android.widget.ScrollView(ChatActivity.this);
-                sv.setFillViewport(false);
-                sv.addView(rt);
-                bubble.addView(sv, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                bubble.addView(rt);
 
                 TextView tv = new TextView(ChatActivity.this);
                 tv.setTextSize(15);
@@ -281,24 +279,25 @@ public class ChatActivity extends Activity {
                 bubble.addView(tv);
                 h.reasoningTitle = title;
                 h.reasoningText = rt;
-                h.reasoningScroll = sv;
                 h.answerText = tv;
             }
 
             boolean hasReasoning = !m.reasoning.trim().isEmpty();
             if (hasReasoning) {
+                // 生成中自动展开思考过程；完成后自动收起让回答可见；
+                // 用户点击标题后可自由展开/收起，且不会被自动状态覆盖。
+                if (m.live) {
+                    h.reasoningOpen = true;
+                } else if (!h.userInteracted) {
+                    h.reasoningOpen = false;
+                }
                 h.reasoningTitle.setVisibility(View.VISIBLE);
                 h.reasoningTitle.setText(h.reasoningOpen ? "💭 思考过程" : "💭 思考过程（点击展开）");
-                h.reasoningScroll.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
+                h.reasoningText.setVisibility(h.reasoningOpen ? View.VISIBLE : View.GONE);
                 h.reasoningText.setText(m.reasoning);
-                int hh = m.reasoning.length() > 400
-                        ? dp(300)
-                        : ViewGroup.LayoutParams.WRAP_CONTENT;
-                h.reasoningScroll.setLayoutParams(new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, hh));
             } else {
                 h.reasoningTitle.setVisibility(View.GONE);
-                h.reasoningScroll.setVisibility(View.GONE);
+                h.reasoningText.setVisibility(View.GONE);
                 h.reasoningText.setText("");
             }
             markwon.setMarkdown(h.answerText, m.text + (m.live ? " ▍" : ""));
@@ -577,6 +576,7 @@ public class ChatActivity extends Activity {
 
     private boolean sameMsg(Msg a, Msg b) {
         return a.type == b.type
+                && a.live == b.live
                 && a.text.equals(b.text)
                 && a.reasoning.equals(b.reasoning);
     }
