@@ -101,14 +101,15 @@ function randomHighPort() {
   return 40000 + Math.floor(Math.random() * 20000)
 }
 
-// Stable remote port derived from the profile name (43000-43999), so the phone
-// and the desktop resolve to the SAME remote dsh instance even when the profile
-// does not pin remotePort explicitly.
+// Stable remote port derived from the numeric suffix of the profile name, so
+// the phone and the desktop ALWAYS resolve to the SAME remote dsh instance even
+// when the profile does not pin remotePort explicitly: 62225 -> 43025,
+// 62224 -> 43024, 62223 -> 43023, 62226 -> 43026.
 function stableRemotePort(p) {
   const name = String((p && p.name) || '').trim()
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
-  return 43000 + (h % 900)
+  const digits = name.replace(/\D/g, '')
+  const suffix = digits.length >= 2 ? Number(digits.slice(-2)) : Number(digits)
+  return 43000 + (Number.isFinite(suffix) ? suffix : 1)
 }
 
 function baseSshArgs(p, forward) {

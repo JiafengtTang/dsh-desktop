@@ -273,9 +273,21 @@ public class SshManager {
 
     private static int stableRemotePort(JSONObject profile) {
         String name = profile.optString("name", "");
-        int h = 0;
-        for (int i = 0; i < name.length(); i++) h = (h * 31 + name.charAt(i)) & 0x7fffffff;
-        return 43000 + (h % 900);
+        // Same rule as the desktop: 62225 -> 43025, 62224 -> 43024, ...
+        String digits = name.replaceAll("\\D", "");
+        int suffix = 1;
+        if (digits.length() >= 2) {
+            try {
+                suffix = Integer.parseInt(digits.substring(digits.length() - 2));
+            } catch (NumberFormatException ignored) {
+            }
+        } else if (!digits.isEmpty()) {
+            try {
+                suffix = Integer.parseInt(digits);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 43000 + suffix;
     }
 
     private static String quote(String s) {
