@@ -23,7 +23,13 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import io.noties.markwon.Markwon;
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin;
+import io.noties.markwon.ext.tables.TablePlugin;
+import io.noties.markwon.ext.tasklist.TaskListPlugin;
+
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +51,7 @@ public class ChatActivity extends Activity {
     private volatile boolean running = false;
     private volatile boolean pollActive = false;
     private Thread poller;
+    private Markwon markwon;
 
     private static class Msg {
         int type;
@@ -69,9 +76,15 @@ public class ChatActivity extends Activity {
             return;
         }
         api = new DshApi(baseUrl);
+        markwon = Markwon.builder(this)
+                .usePlugin(StrikethroughPlugin.create())
+                .usePlugin(TaskListPlugin.create(this))
+                .usePlugin(TablePlugin.create(this))
+                .build();
         buildUi();
         setStatus("加载中");
-        loadHistory(100, false);
+        loadHistory(30, false);
+        checkRunningAndPoll();
     }
 
     private void buildUi() {
@@ -142,15 +155,16 @@ public class ChatActivity extends Activity {
             public View getView(int position, View convertView, ViewGroup parent) {
                 Msg m = messages.get(position);
                 TextView tv = new TextView(ChatActivity.this);
-                tv.setText(m.text + (m.live ? " ▍" : ""));
                 tv.setTextSize(15);
                 tv.setLineSpacing(0, 1.15f);
                 tv.setPadding(dp(14), dp(10), dp(14), dp(10));
                 tv.setMaxWidth(dp(280));
                 if (m.type == TYPE_USER) {
+                    tv.setText(m.text);
                     tv.setTextColor(Color.WHITE);
                     tv.setBackground(rounded(Color.parseColor("#2563eb")));
                 } else {
+                    markwon.setMarkdown(tv, m.text + (m.live ? " ▍" : ""));
                     tv.setTextColor(Color.parseColor("#111827"));
                     tv.setBackground(rounded(Color.parseColor("#ffffff")));
                 }
@@ -195,6 +209,12 @@ public class ChatActivity extends Activity {
         send.setOnClickListener(v -> sendMessage());
         inputRow.addView(send, sendLp);
 
+        inputRow.setOnApplyWindowInsetsListener((v, insets) -> {
+            int bottom = insets.getSystemWindowInsetBottom();
+            v.setPadding(dp(10), dp(8), dp(10), dp(8) + bottom);
+            return insets;
+        });
+
         setContentView(root);
     }
 
@@ -211,7 +231,10 @@ public class ChatActivity extends Activity {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("sessionId", sessionId);
-                payload.put("text", prompt);
+                payload.put("mode", "queue");
+                JSONArray content = new JSONArray();
+                content.put(new JSONObject().put("type", "text").put("text", prompt));
+                payload.put("content", content);
                 api.rpc("session.prompt", payload);
                 main.post(() -> startPolling());
             } catch (Exception e) {
@@ -245,7 +268,7 @@ public class ChatActivity extends Activity {
                     }
                     running = isRunning;
                     main.post(() -> setStatus(running ? "生成中" : "已完成"));
-                    loadHistory(20, true);
+                    updateTail();
                     if (!isRunning) {
                         idleRounds++;
                         if (idleRounds >= 2) break;
@@ -255,7 +278,7 @@ public class ChatActivity extends Activity {
                 } catch (Exception ignored) {
                 }
                 try {
-                    Thread.sleep(2000);
+                    Thread.sleep(1500);
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -263,6 +286,22 @@ public class ChatActivity extends Activity {
             pollActive = false;
         }, "chat-poller");
         poller.start();
+    }
+
+    private void checkRunningAndPoll() {
+        new Thread(() -> {
+            try {
+                JSONArray items = api.listSessions();
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject s = items.optJSONObject(i);
+                    if (s != null && sessionId.equals(s.optString("sessionId")) && s.optBoolean("running", false)) {
+                        main.post(() -> startPolling());
+                        return;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }, "check-running").start();
     }
 
     private void loadHistory(int maxMessages, final boolean keepPosition) {
@@ -279,6 +318,9 @@ public class ChatActivity extends Activity {
                     adapter.notifyDataSetChanged();
                     if (keepPosition) scrollToEnd();
                     else scrollToEnd();
+                    if (!pollActive && statusText.getText().toString().contains("加载中")) {
+                        setStatus("");
+                    }
                 });
             } catch (Exception e) {
                 main.post(() -> {
@@ -294,10 +336,8 @@ public class ChatActivity extends Activity {
     private List<Msg> fold(JSONArray events) {
         List<Msg> result = new ArrayList<>();
         if (events == null) return result;
-        Map<Integer, String> userByTurn = new LinkedHashMap<>();
-        Map<Integer, String> finalByTurn = new LinkedHashMap<>();
-        Map<Integer, StringBuilder> liveByTurn = new LinkedHashMap<>();
-        int maxTurn = 0;
+        StringBuilder pendingUser = new StringBuilder();
+        Map<Integer, Integer> turnIndex = new HashMap<>();
         for (int i = 0; i < events.length(); i++) {
             try {
                 JSONObject ev = events.getJSONObject(i).optJSONObject("event");
@@ -305,43 +345,100 @@ public class ChatActivity extends Activity {
                 JSONObject d = ev == null ? null : ev.optJSONObject("data");
                 if (d == null) continue;
                 int turn = d.optInt("turn", 0);
-                maxTurn = Math.max(maxTurn, turn);
                 if ("user/message".equals(type)) {
+                    JSONObject source = d.optJSONObject("source");
+                    boolean pluginNotice = source != null
+                            && "plugin".equals(source.optString("kind"))
+                            && "notice".equals(source.optString("form"));
+                    if (pluginNotice) continue;
                     String t = textOf(d.optJSONObject("message"));
+                    if (t.isEmpty()) t = textOf(d);
                     if (!t.isEmpty()) {
-                        String prev = userByTurn.get(turn);
-                        userByTurn.put(turn, prev == null ? t : prev + "\n" + t);
+                        if (pendingUser.length() > 0) pendingUser.append("\n");
+                        pendingUser.append(t);
                     }
                 } else if ("assistant/message".equals(type)) {
+                    flushPendingUser(result, pendingUser);
+                    Integer idx = turnIndex.get(turn);
+                    if (idx == null) {
+                        result.add(new Msg(TYPE_ASSISTANT, "", false));
+                        idx = result.size() - 1;
+                        turnIndex.put(turn, idx);
+                    }
                     String t = textOf(d.optJSONObject("message"));
-                    if (!t.isEmpty()) finalByTurn.put(turn, t);
+                    if (!t.isEmpty()) result.get(idx).text = t;
                 } else if ("assistant/chunk".equals(type)) {
+                    flushPendingUser(result, pendingUser);
                     JSONObject chunk = d.optJSONObject("chunk");
                     if (chunk != null && "text-delta".equals(chunk.optString("type"))) {
-                        StringBuilder sb = liveByTurn.get(turn);
-                        if (sb == null) {
-                            sb = new StringBuilder();
-                            liveByTurn.put(turn, sb);
+                        Integer idx = turnIndex.get(turn);
+                        if (idx == null) {
+                            result.add(new Msg(TYPE_ASSISTANT, "", false));
+                            idx = result.size() - 1;
+                            turnIndex.put(turn, idx);
                         }
-                        sb.append(chunk.optString("text", ""));
+                        result.get(idx).text += chunk.optString("text", "");
                     }
                 }
             } catch (Exception ignored) {
             }
         }
-        for (int turn = 1; turn <= maxTurn; turn++) {
-            String user = userByTurn.get(turn);
-            if (user != null && !user.isEmpty()) result.add(new Msg(TYPE_USER, user, false));
-            String finalText = finalByTurn.get(turn);
-            StringBuilder live = liveByTurn.get(turn);
-            String liveText = live == null ? null : live.toString();
-            String text = (finalText != null && !finalText.isEmpty()) ? finalText : (liveText == null ? "" : liveText);
-            if (!text.isEmpty()) {
-                boolean isLive = running && turn == maxTurn && finalText == null;
-                result.add(new Msg(TYPE_ASSISTANT, text, isLive));
-            }
+        flushPendingUser(result, pendingUser);
+        if (running && !result.isEmpty()
+                && result.get(result.size() - 1).type == TYPE_ASSISTANT) {
+            result.get(result.size() - 1).live = true;
         }
         return result;
+    }
+
+    private void flushPendingUser(List<Msg> result, StringBuilder pendingUser) {
+        if (pendingUser.length() == 0) return;
+        result.add(new Msg(TYPE_USER, pendingUser.toString(), false));
+        pendingUser.setLength(0);
+    }
+
+    private void updateTail() {
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("sessionId", sessionId);
+                payload.put("maxMessages", 2);
+                JSONObject value = api.rpc("session.history", payload);
+                final List<Msg> tail = fold(value == null ? null : value.optJSONArray("events"));
+                main.post(() -> {
+                    mergeTail(tail);
+                    adapter.notifyDataSetChanged();
+                    scrollToEnd();
+                });
+            } catch (Exception ignored) {
+            }
+        }, "update-tail").start();
+    }
+
+    private void mergeTail(List<Msg> tail) {
+        if (tail.isEmpty()) return;
+        int i = messages.size() - 1;
+        int j = tail.size() - 1;
+        while (i >= 0 && j >= 0 && sameMsg(messages.get(i), tail.get(j))) {
+            i--;
+            j--;
+        }
+        if (j < 0) return;
+        while (messages.size() > i + 1) {
+            messages.remove(messages.size() - 1);
+        }
+        int start = 0;
+        if (j >= 0 && !messages.isEmpty()
+                && sameMsg(messages.get(messages.size() - 1), tail.get(0))) {
+            start = 1;
+        }
+        for (int k = start; k <= j; k++) {
+            messages.add(tail.get(k));
+        }
+    }
+
+    private boolean sameMsg(Msg a, Msg b) {
+        return a.type == b.type && a.text.equals(b.text);
     }
 
     private String textOf(JSONObject message) {
