@@ -33,6 +33,7 @@ function main() {
   let connections = null
   let quitting = false
   let backendStopped = false
+  let updateInProgress = false
 
   const userData = app.getPath('userData')
   const settingsFile = path.join(userData, 'settings.json')
@@ -46,6 +47,42 @@ function main() {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('backend:status', status)
     }
+  }
+
+  function sendUpdateProgress(payload) {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('dsh:update-progress', payload)
+    }
+  }
+
+  function latestDshVersion() {
+    try {
+      const result = require('node:child_process').spawnSync(
+        process.platform === 'win32' ? 'npm.cmd' : 'npm',
+        ['view', '@deepseek-ai/dsh', 'version'],
+        { encoding: 'utf8', timeout: 20000 }
+      )
+      if (result.status === 0 && result.stdout) {
+        const v = String(result.stdout).trim().split(/\r?\n/)[0].trim()
+        return v || null
+      }
+    } catch {
+      /* fall through */
+    }
+    return null
+  }
+
+  function localDshVersion() {
+    try {
+      return require('@deepseek-ai/dsh/package.json').version
+    } catch {
+      return null
+    }
+  }
+
+  function usesLatestCommand(profile) {
+    const cmd = String((profile && profile.dshCommand) || '').trim()
+    return cmd === '' || /@deepseek-ai\/dsh@latest/.test(cmd)
   }
 
   function loadAll(urlOrFile, isFile) {
@@ -232,6 +269,11 @@ function main() {
     instance.on('ready', (url) => onBackendReady(instance, url))
     instance.on('exit', (info) => onBackendExit(instance, info))
     instance.on('error', (err) => onBackendError(instance, err))
+    instance.on('log', ({ line }) => {
+      if (!updateInProgress) return
+      const s = String(line || '').trim()
+      if (s) sendUpdateProgress({ phase: 'restarting', message: s.slice(0, 140) })
+    })
     backends.set(key, instance)
   }
 
@@ -423,6 +465,75 @@ function main() {
       return { ok: true, output: result.output }
     } catch (err) {
       return { ok: false, error: String(err.message || err) }
+    }
+  })
+
+  // ---- IPC: dsh version / updates ----
+  ipcMain.handle('dsh:checkUpdate', () => {
+    const latest = latestDshVersion()
+    const local = localDshVersion()
+    const remoteNames = connections.list().map((c) => c.name)
+    const pinned = connections.list().filter((c) => !usesLatestCommand(c)).map((c) => c.name)
+    return {
+      ok: true,
+      latest,
+      local,
+      pinned,
+      remoteNames,
+      needsUpdate: Boolean(latest) && (pinned.length > 0 || (local && local !== latest))
+    }
+  })
+
+  ipcMain.handle('dsh:applyUpdate', async () => {
+    updateInProgress = true
+    sendUpdateProgress({ phase: 'checking', message: '正在获取 dsh 最新版本…', percent: 5 })
+    try {
+      const latest = latestDshVersion()
+      if (!latest) {
+        sendUpdateProgress({ phase: 'failed', message: '无法获取最新版本，请检查网络后重试', percent: 0, error: 'npm registry 不可达' })
+        return { ok: false, error: '无法获取最新版本，请检查网络后重试' }
+      }
+      // Pin every remote connection to @latest.
+      for (const c of connections.list()) {
+        if (!usesLatestCommand(c)) {
+          connections.update(c.name, { dshCommand: 'npx -y @deepseek-ai/dsh@latest' })
+        }
+      }
+      sendUpdateProgress({ phase: 'restarting', message: '已切换到最新版，正在重启远程 dsh…', percent: 30 })
+
+      const key = connectionKey()
+      const profile = key !== 'local' ? connections.get(key) : null
+      let result = { ok: true }
+      if (profile) {
+        result = await restartRemoteDsh(profile, (chunk) => {
+          const m = String(chunk).match(/dsh web: progress \d+ (\d+)\/300/)
+          const pct = m ? 30 + Math.min(55, Math.round((Number(m[1]) / 300) * 55)) : 32
+          sendUpdateProgress({ phase: 'restarting', message: '正在启动最新版 dsh（首次下载可能需要几分钟）…', percent: pct })
+        })
+        if (result.ok) {
+          sendUpdateProgress({ phase: 'restarting', message: '远程实例已停止，正在重新连接…', percent: 90 })
+          restartBackend()
+        } else {
+          sendUpdateProgress({
+            phase: 'failed',
+            message: '更新失败：' + (result.output || '远程 dsh 未能停止'),
+            percent: 0,
+            error: result.output || '未知错误'
+          })
+          return { ok: false, error: result.output || '更新失败' }
+        }
+      } else {
+        // Local backend already launches via npx @latest by default; restart it.
+        sendUpdateProgress({ phase: 'restarting', message: '正在重启本地 dsh（最新版）…', percent: 60 })
+        restartBackend()
+      }
+      sendUpdateProgress({ phase: 'ready', message: '已更新到 dsh v' + latest + '，连接就绪', percent: 100 })
+      return { ok: true, latest }
+    } catch (err) {
+      sendUpdateProgress({ phase: 'failed', message: '更新失败：' + String(err.message || err), percent: 0, error: String(err.message || err) })
+      return { ok: false, error: String(err.message || err) }
+    } finally {
+      updateInProgress = false
     }
   })
   ipcMain.handle('ssh:hosts', () => {

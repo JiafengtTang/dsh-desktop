@@ -32,7 +32,7 @@ function normalizeProfile(p) {
     identityFile: (p && p.identityFile) || '',
     projectDir: (p && p.projectDir) || '',
     remotePort: p && p.remotePort ? Number(p.remotePort) : 0,
-    dshCommand: (p && p.dshCommand) || 'npx -y @deepseek-ai/dsh@0.1.0-rc.6',
+    dshCommand: (p && p.dshCommand) || 'npx -y @deepseek-ai/dsh@latest',
     remoteShell: (p && p.remoteShell) || 'bash',
     dshHome: (p && p.dshHome) || '',
     extraSshArgs: Array.isArray(p && p.extraSshArgs) ? p.extraSshArgs : []
@@ -140,10 +140,15 @@ function remoteDshCommand(p, localDshHome) {
   const start = 'cd ' + cdArg(projectDir) + ' && ' +
     '(setsid nohup ' + env + p.dshCommand + ' web --port ' + port +
     ' > ' + log + ' 2>&1 </dev/null &)'
-  const wait = 'for i in $(seq 1 90); do ' +
+  // First launch with @latest can take minutes while npx downloads the newest
+  // package, so allow up to 300s and report progress every 15s. The desktop
+  // surfaces these lines in the connection log / update progress UI.
+  const wait = 'for i in $(seq 1 300); do ' +
     'if curl -s -o /dev/null http://127.0.0.1:' + port + '/; then ' +
-    'echo "dsh web: ready"; ' + keepAlive + '; fi; sleep 1; done; ' +
-    'echo "dsh web: timeout after 90s"; exit 1'
+    'echo "dsh web: ready"; ' + keepAlive + '; fi; ' +
+    'if [ $((i % 15)) -eq 0 ]; then echo "dsh web: progress ' + port + ' ' + '$i/300"; fi; ' +
+    'sleep 1; done; ' +
+    'echo "dsh web: timeout after 300s"; exit 1'
   const inner = probe + '; ' + start + '; ' + wait
   return p.remoteShell + ' -lc ' + shellQuote(inner)
 }
@@ -415,7 +420,7 @@ function testRemoteConnection(profile) {
 // a fresh dsh (plugins are reloaded; if the dshCommand version changed, the new
 // version is fetched). Kill only the process listening on that port so the SSH
 // transport itself is never affected.
-function restartRemoteDsh(profile) {
+function restartRemoteDsh(profile, onProgress) {
   return new Promise((resolve) => {
     const p = normalizeProfile(profile)
     const target = sshTarget(p)
@@ -446,8 +451,16 @@ function restartRemoteDsh(profile) {
       try { child.kill('SIGKILL') } catch {}
       finish(false)
     }, 45000)
-    child.stdout.on('data', (c) => { output += c.toString() })
-    child.stderr.on('data', (c) => { output += c.toString() })
+    child.stdout.on('data', (c) => {
+      const s = c.toString()
+      output += s
+      if (typeof onProgress === 'function') onProgress(s)
+    })
+    child.stderr.on('data', (c) => {
+      const s = c.toString()
+      output += s
+      if (typeof onProgress === 'function') onProgress(s)
+    })
     child.on('error', (err) => {
       clearTimeout(timer)
       finish(false)

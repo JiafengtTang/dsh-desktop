@@ -150,17 +150,40 @@ class DshBackend extends EventEmitter {
     if (this.running) return
 
     const bin = resolveDshBin()
-    if (!bin) {
-      this.emit('error', new Error('Could not locate @deepseek-ai/dsh. Run `npm install` in the project directory.'))
+    const port = this.settings.get('port', 0)
+    const host = this.settings.get('host', '127.0.0.1')
+    const dshCommand = (this.settings.get('dshCommand', '') || '').trim()
+
+    // Default to the newest dsh via npx (local machine behaves the same as
+    // remote servers). A configured dshCommand overrides it; bundled dsh is
+    // the fallback when npx is unavailable.
+    let cmd = null
+    let args = []
+    let env = {}
+    if (dshCommand) {
+      const parts = dshCommand.split(/\s+/).filter(Boolean)
+      cmd = parts.shift()
+      args = parts
+      args.push('web', '--port', String(port))
+    } else {
+      const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+      const probe = spawnSync(npx, ['--version'], { encoding: 'utf8' })
+      if (probe.status === 0 && probe.stdout) {
+        cmd = npx
+        args = ['-y', '@deepseek-ai/dsh@latest', 'web', '--port', String(port)]
+      } else if (bin) {
+        const resolved = resolveNodeCommand(bin, ['web', '--port', String(port)])
+        cmd = resolved.cmd
+        args = resolved.args
+        env = resolved.env
+      }
+    }
+    if (host && host !== '127.0.0.1') args.push('--host', host)
+    if (!cmd) {
+      this.emit('error', new Error('无法启动本地 dsh：未找到 npx，且内置 dsh 缺失。请安装 Node.js 或运行 npm install。'))
       return
     }
 
-    const port = this.settings.get('port', 0)
-    const host = this.settings.get('host', '127.0.0.1')
-    const dshArgs = ['web', '--port', String(port)]
-    if (host && host !== '127.0.0.1') dshArgs.push('--host', host)
-
-    const { cmd, args, env } = resolveNodeCommand(bin, dshArgs)
     const childEnv = { ...process.env, ...env }
     const dshHome = this.settings.get('dshHome', '')
     if (dshHome) childEnv.DSH_HOME = dshHome

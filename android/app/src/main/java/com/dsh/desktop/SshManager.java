@@ -79,7 +79,7 @@ public class SshManager {
                     if (done.compareAndSet(false, true) && listener != null) listener.onError("主机和用户名不能为空");
                     return;
                 }
-                if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@0.1.0-rc.6";
+                if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@latest";
                 if (remotePort <= 0) remotePort = stableRemotePort(profile);
                 if (projectDir.isEmpty()) projectDir = "~";
 
@@ -132,8 +132,8 @@ public class SshManager {
                 String probe = "if curl -s -o /dev/null --max-time 2 http://127.0.0.1:" + remotePort + "/; then echo 'dsh web: ready'; exit 0; fi";
                 String start = "cd " + cdPath + " && (setsid nohup " + dshCommand + " web --port " + remotePort
                         + " > " + log + " 2>&1 </dev/null &)";
-                String wait = "for i in $(seq 1 90); do if curl -s -o /dev/null http://127.0.0.1:" + remotePort
-                        + "/; then echo 'dsh web: ready'; exit 0; fi; sleep 1; done; echo 'dsh web: timeout'; exit 1";
+                String wait = "for i in $(seq 1 300); do if curl -s -o /dev/null http://127.0.0.1:" + remotePort
+                        + "/; then echo 'dsh web: ready'; exit 0; fi; sleep 1; done; echo 'dsh web: timeout after 300s'; exit 1";
                 String inner = probe + "; " + start + "; " + wait;
                 String command = shell + " -lc " + quote(inner);
                 ChannelExec exec = (ChannelExec) s.openChannel("exec");

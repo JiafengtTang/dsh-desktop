@@ -149,6 +149,27 @@
     }
     .dshd-ws-kind.remote { color: #6aa4ff; border-color: rgba(106, 164, 255, 0.38); }
     .dshd-ws-kind.local { color: #34c98e; border-color: rgba(52, 201, 142, 0.38); }
+    .dshd-update {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 2147483002; width: min(520px, calc(100vw - 32px));
+      background: rgba(18, 24, 35, 0.96); color: #e8eefb;
+      border: 1px solid rgba(255,255,255,0.14); border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 12px 14px;
+      font-size: 12.5px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, sans-serif;
+      display: none; box-sizing: border-box;
+    }
+    .dshd-update.show { display: block; }
+    .dshd-update-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 600; }
+    .dshd-update-msg { margin-top: 5px; color: #9fb2d6; font-weight: 400; line-height: 1.45; }
+    .dshd-update-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+    .dshd-update-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.12); margin-top: 10px; overflow: hidden; display: none; }
+    .dshd-update-bar.show { display: block; }
+    .dshd-update-bar > div { height: 100%; width: 0%; background: linear-gradient(90deg, #4f8cff, #34c98e); transition: width 0.4s ease; border-radius: 999px; }
+    .dshd-update-error { margin-top: 8px; color: #ff8b8b; white-space: pre-wrap; word-break: break-all; font-size: 11.5px; }
+    .dshd-update-btn { font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 8px; cursor: pointer; border: 1px solid rgba(255,255,255,0.18); background: transparent; color: #e8eefb; }
+    .dshd-update-btn:hover { border-color: #4f8cff; color: #fff; }
+    .dshd-update-btn.primary { background: #4f8cff; border-color: #4f8cff; color: #fff; }
+    .dshd-update-btn:disabled { opacity: 0.55; cursor: default; }
   `
 
   const style = document.createElement('style')
@@ -579,6 +600,93 @@
     anchor.parentElement ? anchor.parentElement.insertBefore(wrap, anchor) : dlg.appendChild(wrap)
   }
 
+  function updateBannerProgress(p) {
+    const banner = document.getElementById('dshd-update')
+    if (!banner) return
+    const msg = document.getElementById('dshd-update-msg')
+    const bar = document.getElementById('dshd-update-bar')
+    const fill = document.getElementById('dshd-update-fill')
+    const err = document.getElementById('dshd-update-error')
+    const go = document.getElementById('dshd-update-go')
+    const later = document.getElementById('dshd-update-later')
+    if (!msg || !bar || !fill || !err || !go || !later) return
+    if (p && p.phase === 'ready') {
+      fill.style.width = '100%'
+      err.textContent = ''
+      msg.textContent = p.message || '已更新到最新版本，连接就绪'
+      go.disabled = true
+      later.disabled = true
+      setTimeout(() => { banner.classList.remove('show') }, 4000)
+      return
+    }
+    if (p && p.phase === 'failed') {
+      bar.classList.remove('show')
+      go.disabled = false
+      later.disabled = false
+      err.textContent = p.error || p.message || '更新失败'
+      msg.textContent = p.message || '更新失败，请重试'
+      return
+    }
+    if (p && typeof p.percent === 'number') {
+      fill.style.width = Math.max(2, Math.min(100, p.percent)) + '%'
+    }
+    if (p && p.message) msg.textContent = p.message
+    bar.classList.add('show')
+    go.disabled = true
+    later.disabled = true
+  }
+
+  function checkUpdateBanner() {
+    if (!window.dshDesktop || !window.dshDesktop.dsh) return
+    window.dshDesktop.dsh.checkUpdate().then((info) => {
+      if (!info || !info.ok || !info.needsUpdate || !info.latest) return
+      if (sessionStorage.getItem('dshd-update-ignored') === info.latest) return
+      let banner = document.getElementById('dshd-update')
+      if (!banner) {
+        banner = document.createElement('div')
+        banner.id = 'dshd-update'
+        banner.className = 'dshd-update'
+        banner.innerHTML =
+          '<div class="dshd-update-head"><span>检测到 dsh 新版本</span>' +
+          '<span id="dshd-update-close" class="dshd-x" title="稍后再说" style="font-size:16px">×</span></div>' +
+          '<div class="dshd-update-msg" id="dshd-update-msg"></div>' +
+          '<div class="dshd-update-bar" id="dshd-update-bar"><div id="dshd-update-fill"></div></div>' +
+          '<div class="dshd-update-error" id="dshd-update-error"></div>' +
+          '<div class="dshd-update-actions">' +
+          '<button class="dshd-update-btn primary" id="dshd-update-go">更新到最新版</button>' +
+          '<button class="dshd-update-btn" id="dshd-update-later">稍后再说</button></div>'
+        document.body.appendChild(banner)
+        document.getElementById('dshd-update-close').addEventListener('click', () => {
+          banner.classList.remove('show')
+          sessionStorage.setItem('dshd-update-ignored', info.latest)
+        })
+        document.getElementById('dshd-update-later').addEventListener('click', () => {
+          banner.classList.remove('show')
+          sessionStorage.setItem('dshd-update-ignored', info.latest)
+        })
+        document.getElementById('dshd-update-go').addEventListener('click', async () => {
+          updateBannerProgress({ phase: 'restarting', message: '正在更新 dsh 到最新版…', percent: 5 })
+          try {
+            const r = await window.dshDesktop.dsh.applyUpdate()
+            if (!r || !r.ok) {
+              updateBannerProgress({ phase: 'failed', message: '更新失败', error: (r && r.error) || '未知错误' })
+            }
+          } catch (e) {
+            updateBannerProgress({ phase: 'failed', message: '更新失败', error: String(e.message || e) })
+          }
+        })
+        if (window.dshDesktop.dsh.onUpdateProgress) {
+          window.dshDesktop.dsh.onUpdateProgress((p) => updateBannerProgress(p))
+        }
+      }
+      document.getElementById('dshd-update-msg').textContent =
+        '当前 ' + (info.local ? 'v' + info.local : '固定版本') +
+        '，最新版本 v' + info.latest +
+        '。更新会重启 dsh（进行中的对话会中断，记录保留）。'
+      banner.classList.add('show')
+    }).catch(() => {})
+  }
+
   function boot() {
     if (!document.body) {
       setTimeout(boot, 100)
@@ -791,6 +899,7 @@
     injectWsDialogNav()
     injectWorkspaceStatusLight()
     markWorkspaceRows()
+    checkUpdateBanner()
     setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 300)
     setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 1200)
     new MutationObserver(() => {

@@ -11,6 +11,15 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   ssh: {
     hosts: () => ipcRenderer.invoke('ssh:hosts')
   },
+  dsh: {
+    checkUpdate: () => ipcRenderer.invoke('dsh:checkUpdate'),
+    applyUpdate: () => ipcRenderer.invoke('dsh:applyUpdate'),
+    onUpdateProgress: (callback) => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('dsh:update-progress', listener)
+      return () => ipcRenderer.removeListener('dsh:update-progress', listener)
+    }
+  },
   connections: {
     list: () => ipcRenderer.invoke('connections:list'),
     add: (profile) => ipcRenderer.invoke('connections:add', profile),
