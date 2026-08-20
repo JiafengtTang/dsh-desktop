@@ -693,27 +693,27 @@
   }
 
   function injectVersionBadge() {
-    if (document.getElementById('dshd-version')) return
-    const wrap = document.createElement('div')
-    wrap.id = 'dshd-version'
-    wrap.style.cssText =
-      'position:fixed;top:10px;right:12px;z-index:2147483001;' +
-      'display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",Roboto,sans-serif;'
-    const text = document.createElement('span')
-    text.style.cssText =
-      'font-size:10.5px;color:#8b98b3;background:rgba(15,20,29,0.72);' +
-      'border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:3px 8px;' +
-      'pointer-events:none;white-space:nowrap;'
-    text.textContent = 'DSH Desktop'
-    const btn = document.createElement('button')
-    btn.textContent = '更新版本'
-    btn.style.cssText =
-      'pointer-events:auto;font-size:10.5px;padding:3px 9px;border-radius:8px;cursor:pointer;' +
-      'border:1px solid rgba(79,140,255,0.45);background:rgba(79,140,255,0.16);color:#7aa7ff;' +
-      'font-family:inherit;white-space:nowrap;'
-    wrap.appendChild(text)
-    wrap.appendChild(btn)
-    document.body.appendChild(wrap)
+    let wrap = document.getElementById('dshd-version')
+    if (!wrap) {
+      wrap = document.createElement('div')
+      wrap.id = 'dshd-version'
+      wrap.style.cssText =
+        'display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",Roboto,sans-serif;'
+      const text = document.createElement('span')
+      text.style.cssText =
+        'font-size:10.5px;color:#8b98b3;background:rgba(15,20,29,0.72);' +
+        'border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:3px 8px;' +
+        'pointer-events:none;white-space:nowrap;'
+      text.textContent = 'DSH Desktop'
+      const btn = document.createElement('button')
+      btn.textContent = '更新版本'
+      btn.style.cssText =
+        'pointer-events:auto;font-size:10.5px;padding:3px 9px;border-radius:8px;cursor:pointer;' +
+        'border:1px solid rgba(79,140,255,0.45);background:rgba(79,140,255,0.16);color:#7aa7ff;' +
+        'font-family:inherit;white-space:nowrap;'
+      wrap.appendChild(text)
+      wrap.appendChild(btn)
+      document.body.appendChild(wrap)
 
     let updating = false
     const finishUpdate = (ok, msg) => {
@@ -770,6 +770,148 @@
       }).catch(() => {})
     }
     refreshVersion()
+    }
+    // 与左上角标题平齐：把徽标插到顶部标题所在容器里，不遮挡右侧栏。
+    const title = findTopTitleEl()
+    if (title && title.parentElement) {
+      if (wrap.parentElement !== title.parentElement) title.parentElement.appendChild(wrap)
+      wrap.style.position = ''
+      wrap.style.top = ''
+      wrap.style.right = ''
+      wrap.style.left = ''
+      wrap.style.zIndex = ''
+    } else {
+      wrap.style.position = 'fixed'
+      wrap.style.top = '10px'
+      wrap.style.left = '130px'
+      wrap.style.zIndex = '2147483001'
+      if (wrap.parentElement !== document.body) document.body.appendChild(wrap)
+    }
+  }
+
+  function findTopTitleEl() {
+    const selectors = [
+      '[class*="appTitle"]', '[class*="AppTitle"]', '[class*="titleBar"]',
+      '[class*="headerTitle"]', '[class*="brand"]', '[class*="topTitle"]'
+    ]
+    for (const sel of selectors) {
+      const el = document.querySelector(sel)
+      if (el) return el
+    }
+    const tops = document.querySelectorAll('header, [class*="header"], [class*="topbar"], [class*="topBar"]')
+    for (const top of tops) {
+      const leaves = top.querySelectorAll('span, div')
+      for (const leaf of leaves) {
+        if (leaf.children.length > 0) continue
+        const txt = (leaf.textContent || '').trim()
+        if (txt && txt.length < 40) return leaf
+      }
+    }
+    return null
+  }
+
+  function injectVersionEntry() {
+    const sidebar = document.querySelector('.hHd-Xa_root')
+    if (!sidebar || document.getElementById('dshd-version-entry')) return
+    const entry = document.createElement('button')
+    entry.type = 'button'
+    entry.id = 'dshd-version-entry'
+    entry.className = 'dshd-sidebar-entry'
+    entry.innerHTML = '<span style="font-size:13px">⚙</span><span>版本与更新…</span>'
+    const region = sidebar.querySelector('.hHd-Xa_regionArea')
+    const existing = document.getElementById('dshd-sidebar-entry')
+    if (region) sidebar.insertBefore(entry, region)
+    else if (existing && existing.parentElement) existing.parentElement.insertBefore(entry, existing.nextSibling)
+    else sidebar.appendChild(entry)
+    entry.addEventListener('click', openVersionPanel)
+  }
+
+  function openVersionPanel() {
+    let panel = document.getElementById('dshd-version-panel')
+    if (!panel) {
+      panel = document.createElement('div')
+      panel.id = 'dshd-version-panel'
+      panel.className = 'dshd-panel'
+      panel.style.width = '360px'
+      panel.innerHTML =
+        '<div class="dshd-head"><span>版本与更新</span><button class="dshd-x" id="dshd-vp-close">×</button></div>' +
+        '<div class="dshd-body">' +
+        '<div class="dshd-status">桌面端：<b id="dshd-vp-desktop">…</b></div>' +
+        '<div class="dshd-status">dsh 当前：<b id="dshd-vp-current">…</b></div>' +
+        '<div class="dshd-status">最新版：<b id="dshd-vp-latest">…</b></div>' +
+        '<div class="dshd-update-bar" id="dshd-vp-bar"><div id="dshd-vp-fill"></div></div>' +
+        '<div class="dshd-test" id="dshd-vp-msg"></div>' +
+        '<div style="margin-top:12px"><button class="dshd-btn primary" id="dshd-vp-update">更新到最新版</button></div>' +
+        '</div>'
+      document.body.appendChild(panel)
+      document.getElementById('dshd-vp-close').addEventListener('click', closeVersionPanel)
+      document.getElementById('dshd-vp-update').addEventListener('click', runVersionUpdate)
+    }
+    panel.classList.add('open')
+    refreshVersionPanel()
+  }
+
+  function closeVersionPanel() {
+    const p = document.getElementById('dshd-version-panel')
+    if (p) p.classList.remove('open')
+  }
+
+  function refreshVersionPanel() {
+    if (!window.dshDesktop || !window.dshDesktop.dsh) return
+    Promise.all([
+      window.dshDesktop.info ? window.dshDesktop.info() : Promise.resolve(null),
+      window.dshDesktop.dsh.checkUpdate()
+    ]).then(([info, up]) => {
+      if (!up || !up.ok) return
+      const desktop = document.getElementById('dshd-vp-desktop')
+      const cur = document.getElementById('dshd-vp-current')
+      const latest = document.getElementById('dshd-vp-latest')
+      const btn = document.getElementById('dshd-vp-update')
+      if (desktop) desktop.textContent = 'v' + ((info && info.version) || '?')
+      if (cur) cur.textContent = up.running ? 'v' + up.running : '自动跟随最新'
+      if (latest) latest.textContent = up.latest ? 'v' + up.latest : '未知'
+      if (btn) {
+        btn.textContent = (up.latest && up.latest !== up.running) ? '更新到 v' + up.latest : '更新到最新版'
+        btn.disabled = false
+      }
+    }).catch(() => {})
+  }
+
+  function runVersionUpdate() {
+    const btn = document.getElementById('dshd-vp-update')
+    const bar = document.getElementById('dshd-vp-bar')
+    const fill = document.getElementById('dshd-vp-fill')
+    const msg = document.getElementById('dshd-vp-msg')
+    if (!btn || !window.dshDesktop || !window.dshDesktop.dsh) return
+    btn.disabled = true
+    btn.textContent = '更新中…'
+    msg.className = 'dshd-test'
+    msg.textContent = '正在获取最新版本…'
+    msg.style.display = 'block'
+    bar.classList.add('show')
+    fill.style.width = '3%'
+    window.dshDesktop.dsh.applyUpdate().then((r) => {
+      if (r && r.ok) {
+        fill.style.width = '100%'
+        msg.className = 'dshd-test ok'
+        msg.textContent = '已更新到最新版本，正在重新连接…'
+        btn.disabled = false
+        btn.textContent = '已更新'
+        setTimeout(() => { if (btn) { btn.textContent = '更新到最新版'; refreshVersionPanel() } }, 3000)
+      } else {
+        bar.classList.remove('show')
+        msg.className = 'dshd-test fail'
+        msg.textContent = '更新失败：' + ((r && r.error) || '未知错误')
+        btn.disabled = false
+        btn.textContent = '重试'
+      }
+    }).catch((e) => {
+      bar.classList.remove('show')
+      msg.className = 'dshd-test fail'
+      msg.textContent = '更新失败：' + String(e && e.message ? e.message : e)
+      btn.disabled = false
+      btn.textContent = '重试'
+    })
   }
 
   function boot() {
@@ -986,6 +1128,7 @@
     markWorkspaceRows()
     checkUpdateBanner()
     injectVersionBadge()
+    injectVersionEntry()
     setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 300)
     setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 1200)
     new MutationObserver(() => {
@@ -995,6 +1138,7 @@
       injectWorkspaceStatusLight()
       markWorkspaceRows()
       injectVersionBadge()
+      injectVersionEntry()
     }).observe(document.body, { childList: true, subtree: true })
 
     renderList()
