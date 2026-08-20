@@ -694,28 +694,82 @@
 
   function injectVersionBadge() {
     if (document.getElementById('dshd-version')) return
-    const badge = document.createElement('div')
-    badge.id = 'dshd-version'
-    badge.style.cssText =
-      'position:fixed;left:10px;bottom:8px;z-index:2147483001;' +
+    const wrap = document.createElement('div')
+    wrap.id = 'dshd-version'
+    wrap.style.cssText =
+      'position:fixed;top:10px;right:12px;z-index:2147483001;' +
+      'display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",Roboto,sans-serif;'
+    const text = document.createElement('span')
+    text.style.cssText =
       'font-size:10.5px;color:#8b98b3;background:rgba(15,20,29,0.72);' +
       'border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:3px 8px;' +
-      'pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",Roboto,sans-serif;'
-    badge.textContent = 'DSH Desktop'
-    document.body.appendChild(badge)
-    Promise.all([
-      window.dshDesktop && window.dshDesktop.info ? window.dshDesktop.info() : Promise.resolve(null),
-      window.dshDesktop && window.dshDesktop.dsh && window.dshDesktop.dsh.checkUpdate
-        ? window.dshDesktop.dsh.checkUpdate()
-        : Promise.resolve(null)
-    ]).then(([info, up]) => {
-      let text = 'DSH Desktop v' + (info && info.version ? info.version : '?')
-      if (up && up.ok) {
-        if (up.running) text += ' · dsh v' + up.running
-        if (up.latest && up.latest !== up.running) text += '（最新 v' + up.latest + '）'
+      'pointer-events:none;white-space:nowrap;'
+    text.textContent = 'DSH Desktop'
+    const btn = document.createElement('button')
+    btn.textContent = '更新版本'
+    btn.style.cssText =
+      'pointer-events:auto;font-size:10.5px;padding:3px 9px;border-radius:8px;cursor:pointer;' +
+      'border:1px solid rgba(79,140,255,0.45);background:rgba(79,140,255,0.16);color:#7aa7ff;' +
+      'font-family:inherit;white-space:nowrap;'
+    wrap.appendChild(text)
+    wrap.appendChild(btn)
+    document.body.appendChild(wrap)
+
+    let updating = false
+    const finishUpdate = (ok, msg) => {
+      updating = false
+      btn.disabled = false
+      if (ok) {
+        btn.textContent = '已更新'
+        setTimeout(() => { btn.textContent = '更新版本'; refreshVersion() }, 3000)
+      } else {
+        btn.textContent = '重试'
+        text.textContent = '更新失败：' + (msg || '未知错误')
+        setTimeout(() => refreshVersion(), 5000)
       }
-      badge.textContent = text
-    }).catch(() => {})
+    }
+    btn.addEventListener('click', async () => {
+      if (updating) return
+      updating = true
+      btn.disabled = true
+      btn.textContent = '更新中…'
+      try {
+        const r = await window.dshDesktop.dsh.applyUpdate()
+        finishUpdate(Boolean(r && r.ok), (r && r.error) || '')
+      } catch (e) {
+        finishUpdate(false, String(e && e.message ? e.message : e))
+      }
+    })
+    if (window.dshDesktop.dsh.onUpdateProgress) {
+      window.dshDesktop.dsh.onUpdateProgress((p) => {
+        if (!p || updating === false && p.phase !== 'ready' && p.phase !== 'failed') return
+        if (p.phase === 'restarting' || p.phase === 'checking') {
+          btn.textContent = '更新中 ' + (typeof p.percent === 'number' ? Math.round(p.percent) + '%' : '…')
+        } else if (p.phase === 'ready') {
+          finishUpdate(true, '')
+        } else if (p.phase === 'failed') {
+          finishUpdate(false, p.error || p.message || '')
+        }
+      })
+    }
+
+    const refreshVersion = () => {
+      Promise.all([
+        window.dshDesktop && window.dshDesktop.info ? window.dshDesktop.info() : Promise.resolve(null),
+        window.dshDesktop && window.dshDesktop.dsh && window.dshDesktop.dsh.checkUpdate
+          ? window.dshDesktop.dsh.checkUpdate()
+          : Promise.resolve(null)
+      ]).then(([info, up]) => {
+        let v = 'DSH Desktop v' + (info && info.version ? info.version : '?')
+        if (up && up.ok) {
+          if (up.running) v += ' · dsh v' + up.running
+          if (up.latest && up.latest !== up.running) v += '（最新 v' + up.latest + '）'
+          btn.textContent = up.needsUpdate || (up.latest && up.latest !== up.running) ? '更新到 v' + up.latest : '更新版本'
+        }
+        text.textContent = v
+      }).catch(() => {})
+    }
+    refreshVersion()
   }
 
   function boot() {
