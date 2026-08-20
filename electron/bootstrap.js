@@ -16,7 +16,9 @@ const BILLING_MANAGED_END = '# --- end dsh-billing managed ---'
 
 // Skin ids shipped by dsh-web-ui (blue-fantasy is the one we enable).
 const SKIN_IDS = ['dragon-heir', 'miku', 'minecraft', 'qq98', 'ths', 'trading', 'whale-song', 'xp']
-const ACTIVE_SKIN = 'blue-fantasy'
+// No skin is force-enabled anymore: the Blue Fantasy skin bundle is not shipped
+// by current dsh-skins, and enabling a missing package breaks the whole web UI.
+const ACTIVE_SKIN = null
 
 function resolveOnPath(name) {
   const isWin = process.platform === 'win32'
@@ -33,19 +35,22 @@ function resolveOnPath(name) {
   return null
 }
 
-// Write the Blue Fantasy skin into ~/.dsh/cordis.patch.yml (idempotent).
+// Write the managed skin block into ~/.dsh/cordis.patch.yml (idempotent).
+// Every shipped skin stays disabled; no skin is force-activated.
 function applyBlueFantasySkin(dshHome) {
   const patchPath = path.join(dshHome, 'cordis.patch.yml')
   const lines = [MANAGED_START]
   for (const id of SKIN_IDS) {
     lines.push('- id: ui-skin-' + id, '  disabled: true')
   }
-  lines.push(
-    '- insert:',
-    '    - id: ui-skin-' + ACTIVE_SKIN,
-    "      name: '@linxin666/dsh-client-ui-skin-" + ACTIVE_SKIN + "'",
-    MANAGED_END,
-  )
+  if (ACTIVE_SKIN) {
+    lines.push(
+      '- insert:',
+      '    - id: ui-skin-' + ACTIVE_SKIN,
+      "      name: '@linxin666/dsh-client-ui-skin-" + ACTIVE_SKIN + "'",
+    )
+  }
+  lines.push(MANAGED_END)
   const managed = lines.join('\n')
 
   let text = ''
@@ -282,9 +287,6 @@ async function bootstrapWebUi({ dshHome, log }) {
   let skinApplied = false
   if (pluginInstalled) {
     try {
-      if (!ensureBlueFantasySkin(dshHome)) {
-        log('bootstrap: blue-fantasy skin not available in dsh-skins')
-      }
       applyBlueFantasySkin(dshHome)
       skinApplied = true
     } catch (err) {
