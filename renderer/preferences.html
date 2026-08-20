@@ -265,6 +265,7 @@
           </div>
           <button data-activate="${escapeHtml(c.name)}">Use</button>
           <button data-edit="${escapeHtml(c.name)}">Edit</button>
+          <button data-install="${escapeHtml(c.name)}" title="在远程服务器上安装插件（装完可重启生效）">安装插件</button>
           <button data-restart="${escapeHtml(c.name)}" title="停止远程 dsh 并按配置重启（重新加载插件；如需升级 dsh 版本，先在编辑里修改版本号）">重启 dsh</button>
           <button class="danger" data-delete="${escapeHtml(c.name)}">Delete</button>`
         box.appendChild(el)
@@ -309,6 +310,28 @@
           b.disabled = false
           b.textContent = original
           alert(r.ok ? '远程 dsh 已重启，正在重新连接…' : ('重启失败：' + (r.error || '未知错误')))
+          renderList()
+        })
+      })
+      box.querySelectorAll('[data-install]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const name = b.getAttribute('data-install')
+          const spec = prompt('输入要在 ' + name + ' 上安装的插件名（npm 包名），例如 dsh-file-mount：')
+          if (!spec || !spec.trim()) return
+          b.disabled = true
+          const orig = b.textContent
+          b.textContent = '安装中…'
+          const r = await window.dshDesktop.connections.installPluginRemote(name, spec.trim())
+          b.disabled = false
+          b.textContent = orig
+          if (!r || !r.ok) {
+            alert('安装失败：' + ((r && r.error) || '未知错误'))
+            return
+          }
+          if (confirm('插件安装成功。是否立即重启 ' + name + ' 的 dsh 使插件生效？（会中断进行中的对话）')) {
+            const rr = await window.dshDesktop.connections.restartRemote(name)
+            alert(rr && rr.ok ? '已重启 ' + name + ' 的 dsh，插件已生效' : ('重启失败：' + ((rr && rr.error) || '未知错误')))
+          }
           renderList()
         })
       })

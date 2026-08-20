@@ -479,6 +479,47 @@ function restartRemoteDsh(profile, onProgress) {
   })
 }
 
+// Install a plugin into the remote web profile over SSH, then restart the
+// resident dsh so the new plugin is loaded. Returns the install output.
+function installRemotePlugin(profile, spec) {
+  return new Promise((resolve) => {
+    const p = normalizeProfile(profile)
+    const target = sshTarget(p)
+    if (!target) return resolve({ ok: false, output: '缺少主机或 SSH 别名' })
+    const plugin = String(spec || '').trim()
+    if (!plugin) return resolve({ ok: false, output: '缺少插件名' })
+
+    const cmd = p.dshCommand || 'npx -y @deepseek-ai/dsh@next'
+    const inner = cmd + ' plugin --profile web add ' + shellQuote(plugin)
+    const remote = p.remoteShell + ' -lc ' + shellQuote(inner)
+    const args = [...baseSshArgs(p, null), target, remote]
+
+    const child = spawn(resolveSsh(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = ''
+    let settled = false
+    const finish = (ok) => {
+      if (settled) return
+      settled = true
+      resolve({ ok, output: output.trim() })
+    }
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL') } catch {}
+      finish(false)
+    }, 300000)
+    child.stdout.on('data', (c) => { output += c.toString() })
+    child.stderr.on('data', (c) => { output += c.toString() })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      finish(false)
+      output += (output ? '\n' : '') + String(err.message || err)
+    })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      finish(code === 0)
+    })
+  })
+}
+
 // List the immediate subdirectories of a remote path over SSH. Returns the
 // resolved working directory plus a sorted list of child directory names.
 function listRemoteDirectory(profile, dir) {
@@ -584,4 +625,4 @@ async function listWorkspaces(baseUrl, timeoutMs = 4000) {
   }
 }
 
-module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, restartRemoteDsh, normalizeProfile, sshTarget, findFreePort, randomHighPort, stableRemotePort }
+module.exports = { RemoteBackend, testRemoteConnection, listRemoteDirectory, ensureWorkspace, listWorkspaces, syncRemotePlugins, restartRemoteDsh, installRemotePlugin, normalizeProfile, sshTarget, findFreePort, randomHighPort, stableRemotePort }
