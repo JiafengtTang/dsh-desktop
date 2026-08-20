@@ -155,13 +155,19 @@ class DshBackend extends EventEmitter {
     const host = this.settings.get('host', '127.0.0.1')
     const dshCommand = (this.settings.get('dshCommand', '') || '').trim()
 
-    // Default to the newest dsh via npx (local machine behaves the same as
-    // remote servers). A configured dshCommand overrides it; bundled dsh is
-    // the fallback when npx is unavailable.
+    // Priority: a pinned runtime install at ~/.dsh/runtime (fast, offline,
+    // used to keep the local backend on the exact dsh version we installed),
+    // then a configured dshCommand, then npx @next, then the bundled dsh.
     let cmd = null
     let args = []
     let env = {}
-    if (dshCommand) {
+    const runtimeBin = path.join(os.homedir(), '.dsh', 'runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    const runtimeNode = resolveSystemNode()
+    if (fs.existsSync(runtimeBin) && runtimeNode) {
+      cmd = runtimeNode
+      args = [runtimeBin, 'web', '--port', String(port)]
+      env.PATH = path.dirname(runtimeNode) + (process.platform === 'win32' ? ';' : ':') + (process.env.PATH || '')
+    } else if (dshCommand) {
       const parts = dshCommand.split(/\s+/).filter(Boolean)
       cmd = parts.shift()
       args = parts
