@@ -83,6 +83,27 @@ function main() {
     }
   }
 
+  // Version of the dsh package that npx actually fetched for this machine.
+  function runningDshVersion() {
+    try {
+      const npxRoot = path.join(os.homedir(), '.npm', '_npx')
+      const dirs = fs.readdirSync(npxRoot)
+      let best = null
+      for (const dir of dirs) {
+        try {
+          const pkgFile = path.join(npxRoot, dir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
+          const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'))
+          if (pkg.version && (!best || String(pkg.version) > String(best))) best = pkg.version
+        } catch {
+          /* not this npx cache dir */
+        }
+      }
+      return best
+    } catch {
+      return null
+    }
+  }
+
   function usesLatestCommand(profile) {
     const cmd = String((profile && profile.dshCommand) || '').trim()
     return cmd === '' || /@deepseek-ai\/dsh@next/.test(cmd)
@@ -480,12 +501,14 @@ function main() {
   ipcMain.handle('dsh:checkUpdate', () => {
     const latest = latestDshVersion()
     const local = localDshVersion()
+    const running = runningDshVersion()
     const localCommand = (settings.get('dshCommand', '') || '').trim()
     const localAuto = localCommand === '' || /@deepseek-ai\/dsh@next/.test(localCommand)
     const pinned = connections.list().filter((c) => !usesLatestCommand(c)).map((c) => c.name)
     return {
       ok: true,
       latest,
+      running,
       local: localAuto ? null : local,
       localAuto,
       pinned,

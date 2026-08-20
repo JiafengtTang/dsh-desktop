@@ -480,9 +480,9 @@
       try {
         const info = await window.dshDesktop.dsh.checkUpdate()
         if (!info || !info.ok) return
-        $('dshCurVer').textContent = info.localAuto
-          ? '自动跟随最新版'
-          : (info.local ? 'v' + info.local : '内置版')
+        $('dshCurVer').textContent = info.running
+          ? 'v' + info.running + (info.localAuto ? '（自动跟随）' : '')
+          : (info.localAuto ? '自动跟随最新版' : (info.local ? 'v' + info.local : '内置版'))
         $('dshLatestVer').textContent = info.latest ? 'v' + info.latest : '未知'
         dshBtn.disabled = false
       } catch (e) {

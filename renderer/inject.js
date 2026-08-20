@@ -692,6 +692,32 @@
     }).catch(() => {})
   }
 
+  function injectVersionBadge() {
+    if (document.getElementById('dshd-version')) return
+    const badge = document.createElement('div')
+    badge.id = 'dshd-version'
+    badge.style.cssText =
+      'position:fixed;left:10px;bottom:8px;z-index:2147483001;' +
+      'font-size:10.5px;color:#8b98b3;background:rgba(15,20,29,0.72);' +
+      'border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:3px 8px;' +
+      'pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",Roboto,sans-serif;'
+    badge.textContent = 'DSH Desktop'
+    document.body.appendChild(badge)
+    Promise.all([
+      window.dshDesktop && window.dshDesktop.info ? window.dshDesktop.info() : Promise.resolve(null),
+      window.dshDesktop && window.dshDesktop.dsh && window.dshDesktop.dsh.checkUpdate
+        ? window.dshDesktop.dsh.checkUpdate()
+        : Promise.resolve(null)
+    ]).then(([info, up]) => {
+      let text = 'DSH Desktop v' + (info && info.version ? info.version : '?')
+      if (up && up.ok) {
+        if (up.running) text += ' · dsh v' + up.running
+        if (up.latest && up.latest !== up.running) text += '（最新 v' + up.latest + '）'
+      }
+      badge.textContent = text
+    }).catch(() => {})
+  }
+
   function boot() {
     if (!document.body) {
       setTimeout(boot, 100)
@@ -905,6 +931,7 @@
     injectWorkspaceStatusLight()
     markWorkspaceRows()
     checkUpdateBanner()
+    injectVersionBadge()
     setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 300)
     setTimeout(() => { injectSidebarEntry(); injectProjectSwitcher() }, 1200)
     new MutationObserver(() => {
@@ -913,6 +940,7 @@
       injectWsDialogNav()
       injectWorkspaceStatusLight()
       markWorkspaceRows()
+      injectVersionBadge()
     }).observe(document.body, { childList: true, subtree: true })
 
     renderList()
