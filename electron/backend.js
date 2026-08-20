@@ -195,6 +195,9 @@ class DshBackend extends EventEmitter {
       }
     }
     if (host && host !== '127.0.0.1') args.push('--host', host)
+    // dsh would otherwise open the default browser on every launch; the
+    // desktop window is the UI, so never pop a browser.
+    if (!args.includes('--no-open')) args.push('--no-open')
     if (!cmd) {
       this.emit('error', new Error('无法启动本地 dsh：未找到 npx，且内置 dsh 缺失。请安装 Node.js 或运行 npm install。'))
       return
