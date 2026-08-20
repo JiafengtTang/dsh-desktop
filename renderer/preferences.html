@@ -164,6 +164,24 @@
       </div>
       <div class="card" id="pluginList"></div>
     </div>
+
+    <div class="section">
+      <h2>dsh 版本</h2>
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">当前：<span id="dshCurVer">…</span></div>
+            <div class="target">最新：<span id="dshLatestVer">…</span></div>
+          </div>
+          <button type="button" class="primary" id="dshUpdateBtn">更新到最新版</button>
+        </div>
+        <div class="dshd-update-bar" id="dshUpdateBar" style="display:none;height:6px;border-radius:999px;background:rgba(255,255,255,0.12);margin-top:12px;overflow:hidden">
+          <div id="dshUpdateFill" style="height:100%;width:0%;background:linear-gradient(90deg,#4f8cff,#34c98e);border-radius:999px;transition:width 0.4s ease"></div>
+        </div>
+        <div class="test-output" id="dshUpdateMsg" style="margin-top:10px"></div>
+        <div class="hint">更新会切换到 dsh 最新发布版（next / rc），并自动重启本地和远程 dsh；进行中的对话会中断，记录保留。每次打开软件也会自动检查新版本。</div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -423,6 +441,83 @@
     $('pkg-spec').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') $('installBtn').click()
     })
+
+    // ---- dsh version / update ----
+    const dshMsg = $('dshUpdateMsg')
+    const dshBar = $('dshUpdateBar')
+    const dshFill = $('dshUpdateFill')
+    const dshBtn = $('dshUpdateBtn')
+
+    function dshProgress(p) {
+      if (!p) return
+      dshMsg.style.display = 'block'
+      if (p.phase === 'ready') {
+        dshFill.style.width = '100%'
+        dshMsg.className = 'test-output ok'
+        dshMsg.textContent = p.message || '已更新到最新版本'
+        dshBtn.disabled = false
+        dshBar.style.display = 'none'
+        refreshDshVersion()
+        return
+      }
+      if (p.phase === 'failed') {
+        dshBar.style.display = 'none'
+        dshMsg.className = 'test-output fail'
+        dshMsg.textContent = p.error || p.message || '更新失败'
+        dshBtn.disabled = false
+        return
+      }
+      dshBar.style.display = 'block'
+      if (typeof p.percent === 'number') {
+        dshFill.style.width = Math.max(3, Math.min(100, p.percent)) + '%'
+      }
+      dshMsg.className = 'test-output'
+      dshMsg.textContent = p.message || '更新中…'
+      dshBtn.disabled = true
+    }
+
+    async function refreshDshVersion() {
+      try {
+        const info = await window.dshDesktop.dsh.checkUpdate()
+        if (!info || !info.ok) return
+        $('dshCurVer').textContent = info.localAuto
+          ? '自动跟随最新版'
+          : (info.local ? 'v' + info.local : '内置版')
+        $('dshLatestVer').textContent = info.latest ? 'v' + info.latest : '未知'
+        dshBtn.disabled = false
+      } catch (e) {
+        $('dshCurVer').textContent = '未知'
+        $('dshLatestVer').textContent = '未知'
+      }
+    }
+
+    dshBtn.addEventListener('click', async () => {
+      dshBtn.disabled = true
+      dshMsg.className = 'test-output'
+      dshMsg.textContent = '正在检查最新版本…'
+      dshMsg.style.display = 'block'
+      dshBar.style.display = 'block'
+      dshFill.style.width = '3%'
+      try {
+        const r = await window.dshDesktop.dsh.applyUpdate()
+        if (!r || !r.ok) {
+          dshBar.style.display = 'none'
+          dshMsg.className = 'test-output fail'
+          dshMsg.textContent = (r && r.error) || '更新失败'
+          dshBtn.disabled = false
+        }
+      } catch (err) {
+        dshBar.style.display = 'none'
+        dshMsg.className = 'test-output fail'
+        dshMsg.textContent = String(err && err.message ? err.message : err)
+        dshBtn.disabled = false
+      }
+    })
+
+    if (window.dshDesktop.dsh.onUpdateProgress) {
+      window.dshDesktop.dsh.onUpdateProgress((p) => dshProgress(p))
+    }
+    refreshDshVersion()
 
     renderPlugins()
   </script>

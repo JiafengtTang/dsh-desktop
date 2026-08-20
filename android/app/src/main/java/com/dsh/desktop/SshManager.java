@@ -79,7 +79,7 @@ public class SshManager {
                     if (done.compareAndSet(false, true) && listener != null) listener.onError("主机和用户名不能为空");
                     return;
                 }
-                if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@latest";
+                if (dshCommand.isEmpty()) dshCommand = "npx -y @deepseek-ai/dsh@next";
                 if (remotePort <= 0) remotePort = stableRemotePort(profile);
                 if (projectDir.isEmpty()) projectDir = "~";
 

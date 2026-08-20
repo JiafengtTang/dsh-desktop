@@ -32,7 +32,7 @@ function normalizeProfile(p) {
     identityFile: (p && p.identityFile) || '',
     projectDir: (p && p.projectDir) || '',
     remotePort: p && p.remotePort ? Number(p.remotePort) : 0,
-    dshCommand: (p && p.dshCommand) || 'npx -y @deepseek-ai/dsh@latest',
+    dshCommand: (p && p.dshCommand) || 'npx -y @deepseek-ai/dsh@next',
     remoteShell: (p && p.remoteShell) || 'bash',
     dshHome: (p && p.dshHome) || '',
     extraSshArgs: Array.isArray(p && p.extraSshArgs) ? p.extraSshArgs : []

@@ -60,12 +60,14 @@ function main() {
     try {
       const result = require('node:child_process').spawnSync(
         process.platform === 'win32' ? 'npm.cmd' : 'npm',
-        ['view', '@deepseek-ai/dsh', 'version'],
+        ['view', '@deepseek-ai/dsh', 'dist-tags', '--json'],
         { encoding: 'utf8', timeout: 20000 }
       )
       if (result.status === 0 && result.stdout) {
-        const v = String(result.stdout).trim().split(/\r?\n/)[0].trim()
-        return v || null
+        const tags = JSON.parse(result.stdout)
+        // dsh publishes new release candidates under the "next" tag; prefer it
+        // so the app follows the newest rc (e.g. rc.8) instead of stale latest.
+        return (tags && (tags.next || tags.latest)) || null
       }
     } catch {
       /* fall through */
@@ -83,7 +85,7 @@ function main() {
 
   function usesLatestCommand(profile) {
     const cmd = String((profile && profile.dshCommand) || '').trim()
-    return cmd === '' || /@deepseek-ai\/dsh@latest/.test(cmd)
+    return cmd === '' || /@deepseek-ai\/dsh@next/.test(cmd)
   }
 
   function loadAll(urlOrFile, isFile) {
@@ -479,7 +481,7 @@ function main() {
     const latest = latestDshVersion()
     const local = localDshVersion()
     const localCommand = (settings.get('dshCommand', '') || '').trim()
-    const localAuto = localCommand === '' || /@deepseek-ai\/dsh@latest/.test(localCommand)
+    const localAuto = localCommand === '' || /@deepseek-ai\/dsh@next/.test(localCommand)
     const pinned = connections.list().filter((c) => !usesLatestCommand(c)).map((c) => c.name)
     return {
       ok: true,
@@ -500,10 +502,10 @@ function main() {
         sendUpdateProgress({ phase: 'failed', message: '无法获取最新版本，请检查网络后重试', percent: 0, error: 'npm registry 不可达' })
         return { ok: false, error: '无法获取最新版本，请检查网络后重试' }
       }
-      // Pin every remote connection to @latest.
+      // Pin every remote connection to the newest rc (@next).
       for (const c of connections.list()) {
         if (!usesLatestCommand(c)) {
-          connections.update(c.name, { dshCommand: 'npx -y @deepseek-ai/dsh@latest' })
+          connections.update(c.name, { dshCommand: 'npx -y @deepseek-ai/dsh@next' })
         }
       }
       sendUpdateProgress({ phase: 'restarting', message: '已切换到最新版，正在重启远程 dsh…', percent: 30 })
@@ -530,7 +532,7 @@ function main() {
           return { ok: false, error: result.output || '更新失败' }
         }
       } else {
-        // Local backend already launches via npx @latest by default; restart it.
+        // Local backend already launches via npx @next by default; restart it.
         sendUpdateProgress({ phase: 'restarting', message: '正在重启本地 dsh（最新版）…', percent: 60 })
         restartBackend()
       }

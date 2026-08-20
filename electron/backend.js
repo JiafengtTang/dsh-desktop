@@ -171,7 +171,7 @@ class DshBackend extends EventEmitter {
       const probe = spawnSync(npx, ['--version'], { encoding: 'utf8' })
       if (probe.status === 0 && probe.stdout) {
         cmd = npx
-        args = ['-y', '@deepseek-ai/dsh@latest', 'web', '--port', String(port)]
+        args = ['-y', '@deepseek-ai/dsh@next', 'web', '--port', String(port)]
       } else if (bin) {
         const resolved = resolveNodeCommand(bin, ['web', '--port', String(port)])
         cmd = resolved.cmd
