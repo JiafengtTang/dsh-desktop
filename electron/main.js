@@ -503,8 +503,16 @@ function main() {
     const local = localDshVersion()
     const running = runningDshVersion()
     const localCommand = (settings.get('dshCommand', '') || '').trim()
-    const localAuto = localCommand === '' || /@deepseek-ai\/dsh@next/.test(localCommand)
-    const pinned = connections.list().filter((c) => !usesLatestCommand(c)).map((c) => c.name)
+    // Local is "auto" when it follows @next or runs a pinned runtime install
+    // (~/.dsh/runtime) — both are already the newest version we installed.
+    const localAuto = localCommand === ''
+        || /@deepseek-ai\/dsh@next/.test(localCommand)
+        || localCommand.includes('/.dsh/runtime/')
+    // Only connections still pinned to the old @latest tag are considered
+    // stale; fixed-path installs (npx cache / runtime) are intentionally stable.
+    const pinned = connections.list()
+        .filter((c) => /@deepseek-ai\/dsh@latest/.test(String((c && c.dshCommand) || '')))
+        .map((c) => c.name)
     return {
       ok: true,
       latest,

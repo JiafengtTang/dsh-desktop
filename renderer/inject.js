@@ -679,9 +679,9 @@
           window.dshDesktop.dsh.onUpdateProgress((p) => updateBannerProgress(p))
         }
       }
-      const curText = info.localAuto
-        ? '本地已自动使用最新版'
-        : (info.local ? '本地 v' + info.local : '固定版本')
+      const curText = info.running
+        ? '本地 dsh v' + info.running
+        : (info.localAuto ? '本地已自动使用最新版' : (info.local ? '本地 v' + info.local : '固定版本'))
       const pinnedText = (info.pinned && info.pinned.length)
         ? '有 ' + info.pinned.length + ' 个远程连接仍在使用旧版 dsh。'
         : ''
