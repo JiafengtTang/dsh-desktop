@@ -167,11 +167,20 @@ class DshBackend extends EventEmitter {
       args = parts
       args.push('web', '--port', String(port))
     } else {
-      const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+      // Finder-launched apps inherit a minimal PATH with no Node, so resolve the
+      // real node/npx and prepend its directory instead of relying on `npx`.
+      const systemNode = resolveSystemNode()
+      const nodeDir = systemNode ? path.dirname(systemNode) : null
+      const npx = nodeDir
+        ? path.join(nodeDir, process.platform === 'win32' ? 'npx.cmd' : 'npx')
+        : (process.platform === 'win32' ? 'npx.cmd' : 'npx')
       const probe = spawnSync(npx, ['--version'], { encoding: 'utf8' })
       if (probe.status === 0 && probe.stdout) {
         cmd = npx
         args = ['-y', '@deepseek-ai/dsh@next', 'web', '--port', String(port)]
+        if (nodeDir) {
+          env.PATH = nodeDir + (process.platform === 'win32' ? ';' : ':') + (process.env.PATH || '')
+        }
       } else if (bin) {
         const resolved = resolveNodeCommand(bin, ['web', '--port', String(port)])
         cmd = resolved.cmd
